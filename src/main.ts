@@ -4,20 +4,17 @@ import { Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as fs from 'fs'; // Import the 'fs' module
 import path from 'path';
-import 'dotenv/config'
+import 'dotenv/config';
 // import helmet from 'helmet';
 
 async function bootstrap() {
   // SSL setup
-  // const httpsOptions = {
-  //   key: fs.readFileSync(process.env.PRIVATE_KEY_PATH),
-  //   cert: fs.readFileSync(process.env.CERTIFICATE_PATH),
-  // };
+  const httpsOptions = {
+    key: fs.readFileSync(process.env.PRIVATE_KEY_PATH),
+    cert: fs.readFileSync(process.env.CERTIFICATE_PATH),
+  };
 
-  const app = await NestFactory.create(
-    AppModule,
-    //{ httpsOptions }
-  );
+  const app = await NestFactory.create(AppModule, { httpsOptions });
   // TODO: improve logger
   app.useLogger(new Logger());
   app.enableCors();
