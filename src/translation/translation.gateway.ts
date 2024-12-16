@@ -11,7 +11,7 @@ import {
 import { RealtimeSession } from 'speechmatics';
 import { OpenAI } from 'openai';
 import { Socket, Server } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 
@@ -19,6 +19,8 @@ import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 export class TranslationGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
+  constructor(private readonly wsJwtGuard: WsJwtGuard) {}
+
   @WebSocketServer()
   private server: Server;
 
@@ -49,6 +51,9 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
+    // Validate auth
+    this.wsJwtGuard.canActivate(client);
+
     console.log(`Client connected: ${client.id}`);
     client.on('audioData', async (data: any) => {
       if (data instanceof Uint8Array) {
@@ -86,12 +91,12 @@ export class TranslationGateway
   // To track sessions being created
   private creatingSessions: Set<string> = new Set();
 
-  @UseGuards(WsJwtGuard)
   @SubscribeMessage('audioData')
   async handleAudioData(
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
   ) {
+    console.log('ACCESSED');
     // If a session is already being created, wait for completion
     if (this.creatingSessions.has(client.id)) {
       return;
