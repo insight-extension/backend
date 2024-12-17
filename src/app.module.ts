@@ -7,6 +7,7 @@ import { TranslationModule } from './translation/translation.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AccountModule } from 'src/account/account.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AuthModule } from 'src/auth/auth.module';
     AccountModule,
     AuthModule,
     TranslationModule,
+    PaymentModule,
   ],
   providers: [
     TranslationModule,

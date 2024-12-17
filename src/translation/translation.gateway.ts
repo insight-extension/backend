@@ -51,7 +51,7 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
-    // Validate auth
+    // Check if user is authorized
     this.wsJwtGuard.canActivate(client);
 
     console.log(`Client connected: ${client.id}`);
@@ -96,7 +96,6 @@ export class TranslationGateway
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
   ) {
-    console.log('ACCESSED');
     // If a session is already being created, wait for completion
     if (this.creatingSessions.has(client.id)) {
       return;
