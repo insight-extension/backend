@@ -64,9 +64,13 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerTime(client: Socket) {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const [userInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
       const userAtaAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userPublicKey,
+        userInfoAddress,
       );
       const userAtaBalance: number =
         await this.getUserAtaBalance(userAtaAddress);
