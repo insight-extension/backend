@@ -16,10 +16,8 @@ import { JwtService } from '@nestjs/jwt';
 import 'dotenv/config';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { get } from 'http';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import { start } from 'repl';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -80,19 +78,49 @@ export class PaymentService implements OnModuleInit {
         throw new Error('Insufficient balance');
       }
 
+      // Define translation usage start time
       const usageStartTime: Date = new Date();
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
 
+      // Determine the expiration time of the user's balance
       const usageTimeLimit: Date = this.getUsageTimeLimit(
         usageStartTime,
         userAtaBalance,
       );
       // TODO: Implement timeout for limited usage
-      // setLimitedUsageTimeout(userPublicKey, usageStartTime, usageTimeLimit);
+      this.setBalanceExpirationTimeout(
+        client,
+        userPublicKey,
+        usageStartTime,
+        usageTimeLimit,
+        userAtaBalance,
+      );
     } catch (error) {
       // Disconnect client if error occurs
       Logger.error(`Error starting pay per time: ${error.message}`);
+      client._error(error);
+    }
+  }
+
+  private async stopPayingPerTime(client: Socket) {
+    try {
+      // Set the usage end time when the client stops paying per time
+      const usageEndTime: Date = new Date();
+      // Get the usage start time from cache
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const usageStartTime: Date = await this.cacheManager.get(
+        userPublicKey.toString(),
+      );
+      // Calculate the usage time in minutes
+      const timeDifference: number =
+        usageEndTime.getTime() - usageStartTime.getTime();
+      // Round up the total used minutes to get the total amount to be paid
+      const totalUsedMinutes: number = Math.ceil(timeDifference / (60 * 1000));
+      const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
+      this.payPerTime(userPublicKey, totalPrice);
+    } catch (error) {
+      Logger.error(`Error stopping pay per time: ${error.message}`);
       client._error(error);
     }
   }
@@ -114,20 +142,23 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async payPerTime() {
+  private async payPerTime(
+    userPublicKey: PublicKey,
+    totalPriceInRawUSDC: number,
+  ) {
     try {
       const transaction = await this.program.methods
-        .payPerTime(new anchor.BN(1_000_000))
+        .payPerTime(new anchor.BN(totalPriceInRawUSDC))
         .accounts({
-          user: this.userKeypair.publicKey,
+          user: userPublicKey,
           token: this.USDC_TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
         .rpc();
-      console.log(transaction);
+      Logger.log(transaction);
     } catch (error) {
-      console.error(error);
+      Logger.error(error);
     }
   }
 
@@ -143,8 +174,10 @@ export class PaymentService implements OnModuleInit {
     startUsageTime: Date,
     userAtaBalance: number,
   ): Date {
-    const minutesLimit = userAtaBalance / this.USDC_PRICE_PER_MINUTE;
+    const minutesLimit: number = userAtaBalance / this.USDC_PRICE_PER_MINUTE;
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
+
+    // Calculate the time limit for the user's balance
     const usageTimeLimit: Date = new Date(
       startUsageTime.getTime() + minutesLimitToMilliseconds,
     );
@@ -153,9 +186,9 @@ export class PaymentService implements OnModuleInit {
 
   private getPublicKeyFromWsClient(client: Socket): PublicKey {
     // Get handshake headers
-    const authHeader = client.request.headers.authorization;
+    const authHeader: string = client.request.headers.authorization;
     // Get bearer token from headers
-    const bearerToken = authHeader.split(' ')[1];
+    const bearerToken: string = authHeader.split(' ')[1];
     // Get payload from encoded token
     const payload = this.jwtService.verify(bearerToken, {
       secret: process.env.JWT_SECRET,
@@ -163,5 +196,26 @@ export class PaymentService implements OnModuleInit {
     return new PublicKey(payload.publicKey);
   }
 
-  private async setLimitedUsageTimeout(client: Socket) {}
+  private async setBalanceExpirationTimeout(
+    client: Socket,
+    userPublicKey: PublicKey,
+    usageStartTime: Date,
+    usageTimeLimit: Date,
+    userAtaBalance: number,
+  ) {
+    const millisecondsToExecute: number =
+      usageTimeLimit.getTime() - usageStartTime.getTime();
+    const taskName: string = userPublicKey.toString();
+
+    // Define timeout callback to execute when time limit is reached
+    const timeoutCallback = async () => {
+      await this.payPerTime(userPublicKey, userAtaBalance);
+      this.cacheManager.del(userPublicKey.toString());
+      // TODO: Sent a message to the client to notify them of insufficient balance
+      client.disconnect();
+    };
+    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+    // Add timeout to scheduler registry
+    this.schedulerRegistry.addTimeout(taskName, timeout);
+  }
 }
