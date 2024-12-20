@@ -5,8 +5,8 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { CacheModule } from '@nestjs/cache-manager';
 import { AccountModule } from 'src/account/account.module';
-import 'dotenv/config';
 import { WsJwtGuard } from './guards/jwt-ws.guard';
+import 'dotenv/config';
 @Module({
   imports: [
     AccountModule,
