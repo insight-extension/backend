@@ -18,6 +18,8 @@ import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { get } from 'http';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { start } from 'repl';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -30,12 +32,13 @@ export class PaymentService implements OnModuleInit {
   private readonly USDC_TOKEN_ADDRESS = new PublicKey(
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
-  private readonly RAW_USDC_PRICE_PER_MINUTE = 0.03 * 1000000;
+  private readonly USDC_PRICE_PER_MINUTE = 0.03 * 1_000_000; // 0.03 USDC in raw format
   // TODO: Replace with actual user keypair
   private readonly userKeypair: Keypair = new Keypair();
 
   constructor(
-    private jwtService: JwtService,
+    private readonly jwtService: JwtService,
+    private readonly schedulerRegistry: SchedulerRegistry,
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {
@@ -65,20 +68,26 @@ export class PaymentService implements OnModuleInit {
         this.USDC_TOKEN_ADDRESS,
         userPublicKey,
       );
-      const rawUserAtaBalance: number =
-        await this.getRawUserAtaBalance(userAtaAddress);
+      const userAtaBalance: number =
+        await this.getUserAtaBalance(userAtaAddress);
 
-      //
-      if (rawUserAtaBalance < this.RAW_USDC_PRICE_PER_MINUTE) {
+      // Check if user has sufficient balance
+      if (userAtaBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
       }
 
       const usageStartTime: Date = new Date();
-      // Store the usage start time in cache asscoiated with the client's public key
+      // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
+
+      const usageTimeLimit: Date = this.getUsageTimeLimit(
+        usageStartTime,
+        userAtaBalance,
+      );
       // TODO: Implement timeout for limited usage
-      // setLimitedUsageTimeout(client);
+      // setLimitedUsageTimeout(userPublicKey, usageStartTime, usageTimeLimit);
     } catch (error) {
+      // Disconnect client if error occurs
       Logger.error(`Error starting pay per time: ${error.message}`);
       client._error(error);
     }
@@ -118,9 +127,7 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async getRawUserAtaBalance(
-    userAtaAddress: PublicKey,
-  ): Promise<number> {
+  private async getUserAtaBalance(userAtaAddress: PublicKey): Promise<number> {
     const balanceInfo =
       await this.connection.getTokenAccountBalance(userAtaAddress);
     console.log('Balance:', balanceInfo.value.amount);
@@ -128,18 +135,16 @@ export class PaymentService implements OnModuleInit {
     return balance;
   }
 
-  private async getUsageTimeLimit(
-    startTime: Date,
-    userAtaAddress: PublicKey,
-  ): Promise<Date> {
-    const minutesLimit =
-      (await this.getRawUserAtaBalance(userAtaAddress)) /
-      this.RAW_USDC_PRICE_PER_MINUTE;
+  private getUsageTimeLimit(
+    startUsageTime: Date,
+    userAtaBalance: number,
+  ): Date {
+    const minutesLimit = userAtaBalance / this.USDC_PRICE_PER_MINUTE;
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
-    const balanceExpirationDate: Date = new Date(
-      startTime.getTime() + minutesLimitToMilliseconds,
+    const usageTimeLimit: Date = new Date(
+      startUsageTime.getTime() + minutesLimitToMilliseconds,
     );
-    return balanceExpirationDate;
+    return usageTimeLimit;
   }
 
   private getPublicKeyFromWsClient(client: Socket): PublicKey {
@@ -153,5 +158,6 @@ export class PaymentService implements OnModuleInit {
     });
     return new PublicKey(payload.publicKey);
   }
-  private async isBalanceSufficient(clientPublicKey: PublicKey) {}
+
+  private async setLimitedUsageTimeout(client: Socket) {}
 }
