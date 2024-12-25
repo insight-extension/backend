@@ -62,12 +62,11 @@ export class PaymentService implements OnModuleInit {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       console.log('User Public Key:', userPublicKey.toString());
-      const [userInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-        this.program.programId,
-      );
-      console.log('User Info Address:', userInfoAddress.toString());
-
+      // const [userInfoAddress] = PublicKey.findProgramAddressSync(
+      //   [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
+      //   this.program.programId,
+      // );
+      // console.log('User Info Address:', userInfoAddress.toString());
       const userAtaAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userPublicKey,
@@ -126,19 +125,30 @@ export class PaymentService implements OnModuleInit {
 
       const SECONDS_TO_ROUND: number = 40;
       // Convert seconds into decimal format for comparison
+
       const convertedSeconds = SECONDS_TO_ROUND / 60;
       // Round up the total used minutes if seconds > 40
+
       const totalUsedMinutes: number =
         timeDifferenceInMinutes % 1 >= convertedSeconds
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
       const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
+      console.log('Total Price:', totalPrice);
+
       // Remove the usage start time from cache
       this.cacheManager.del(userPublicKey.toString());
+      console.log('Cache deleted');
+
       // Remove the timeout from scheduler
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+      console.log('Timeout deleted');
+
       // Withdraw money from user using program
-      await this.payPerTime(userPublicKey, totalPrice);
+      if (totalPrice !== 0) {
+        await this.payPerTime(userPublicKey, totalPrice);
+        console.log('Payment done');
+      }
     } catch (error) {
       Logger.error(`Error stopping pay per time: ${error.message}`);
       client._error(error);
@@ -159,7 +169,7 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(transaction);
+      Logger.log('Payment done: ', transaction);
     } catch (error) {
       Logger.error(error);
     }
@@ -192,10 +202,8 @@ export class PaymentService implements OnModuleInit {
     const authHeader: string = client.request.headers.authorization;
     // Get bearer token from headers
     const bearerToken: string = authHeader.split(' ')[1];
-    // Get payload from encoded token
-    const payload = this.jwtService.verify(bearerToken, {
-      secret: process.env.JWT_SECRET,
-    });
+    // Encode payload from token
+    const payload = this.jwtService.decode(bearerToken);
     return new PublicKey(payload.publicKey);
   }
 
