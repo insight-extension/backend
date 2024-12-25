@@ -13,5 +13,6 @@ import { ScheduleModule } from '@nestjs/schedule';
     JwtModule,
   ],
   providers: [PaymentService, JwtService],
+  exports: [PaymentService],
 })
 export class PaymentModule {}

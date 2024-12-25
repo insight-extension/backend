@@ -14,12 +14,16 @@ import { Socket, Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
+import { PaymentService } from 'src/payment/payment.service';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
-  constructor(private readonly wsJwtGuard: WsJwtGuard) {}
+  constructor(
+    private readonly wsJwtGuard: WsJwtGuard,
+    private readonly paymentService: PaymentService,
+  ) {}
 
   @WebSocketServer()
   private server: Server;
@@ -53,8 +57,8 @@ export class TranslationGateway
   async handleConnection(client: Socket) {
     // Check if user is authorized
     this.wsJwtGuard.canActivate(client);
-
     console.log(`Client connected: ${client.id}`);
+    this.paymentService.startPayingPerMinutes(client);
     client.on('audioData', async (data: any) => {
       if (data instanceof Uint8Array) {
         await this.handleAudioData(Buffer.from(data), client);
@@ -67,6 +71,7 @@ export class TranslationGateway
   async handleDisconnect(client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
     await this.cleanupSession(client.id);
+    this.paymentService.stopPayingPerMinutes(client);
   }
 
   private async cleanupSession(clientId: string) {

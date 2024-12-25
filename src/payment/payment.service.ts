@@ -31,8 +31,6 @@ export class PaymentService implements OnModuleInit {
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
   private readonly USDC_PRICE_PER_MINUTE = 0.03 * 1_000_000; // 0.03 USDC in raw format
-  // TODO: Replace with actual user keypair
-  private readonly userKeypair: Keypair = new Keypair();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -59,20 +57,26 @@ export class PaymentService implements OnModuleInit {
     Logger.log('Payment Service initialized');
   }
 
-  private async startPayingPerTime(client: Socket) {
+  // TODO: add translation status for balance freezing
+  async startPayingPerMinutes(client: Socket) {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      console.log('User Public Key:', userPublicKey.toString());
       const [userInfoAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
+      console.log('User Info Address:', userInfoAddress.toString());
+
       const userAtaAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userInfoAddress,
+        userPublicKey,
       );
+
+      console.log('User ATA Address:', userAtaAddress.toString());
       const userAtaBalance: number =
         await this.getUserAtaBalance(userAtaAddress);
-
+      console.log('User ATA Balance:', userAtaBalance);
       // Check if user has sufficient balance
       if (userAtaBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
@@ -88,7 +92,8 @@ export class PaymentService implements OnModuleInit {
         usageStartTime,
         userAtaBalance,
       );
-      // TODO: Implement timeout for limited usage
+      console.log('Usage Time Limit:', usageTimeLimit);
+      // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       this.setBalanceExpirationTimeout(
         client,
         userPublicKey,
@@ -96,6 +101,7 @@ export class PaymentService implements OnModuleInit {
         usageTimeLimit,
         userAtaBalance,
       );
+      console.log('Timeout set');
     } catch (error) {
       // Disconnect client if error occurs
       Logger.error(`Error starting pay per time: ${error.message}`);
@@ -103,7 +109,7 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async stopPayingPerTime(client: Socket) {
+  async stopPayingPerMinutes(client: Socket) {
     try {
       // Set the usage end time when the client stops paying per time
       const usageEndTime: Date = new Date();
@@ -112,33 +118,30 @@ export class PaymentService implements OnModuleInit {
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
-      // Calculate the usage time in minutes
+      // Calculate the usage time in milliseconds
       const timeDifference: number =
         usageEndTime.getTime() - usageStartTime.getTime();
-      // Round up the total used minutes to get the total amount to be paid
-      const totalUsedMinutes: number = Math.ceil(timeDifference / (60 * 1000));
+      // Convert the time difference to minutes
+      const timeDifferenceInMinutes: number = timeDifference / (60 * 1000);
+
+      const SECONDS_TO_ROUND: number = 40;
+      // Convert seconds into decimal format for comparison
+      const convertedSeconds = SECONDS_TO_ROUND / 60;
+      // Round up the total used minutes if seconds > 40
+      const totalUsedMinutes: number =
+        timeDifferenceInMinutes % 1 >= convertedSeconds
+          ? Math.ceil(timeDifferenceInMinutes)
+          : Math.floor(timeDifferenceInMinutes);
       const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
-      this.payPerTime(userPublicKey, totalPrice);
+      // Remove the usage start time from cache
+      this.cacheManager.del(userPublicKey.toString());
+      // Remove the timeout from scheduler
+      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+      // Withdraw money from user using program
+      await this.payPerTime(userPublicKey, totalPrice);
     } catch (error) {
       Logger.error(`Error stopping pay per time: ${error.message}`);
       client._error(error);
-    }
-  }
-
-  private async depositToTimedVault() {
-    try {
-      const transaction = await this.program.methods
-        .depositToTimedVault(new anchor.BN(1_000_000))
-        .accounts({
-          user: this.userKeypair.publicKey,
-          token: this.USDC_TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([this.userKeypair])
-        .rpc();
-      console.log(transaction);
-    } catch (error) {
-      console.log(`Error: ${error}`);
     }
   }
 
@@ -185,7 +188,7 @@ export class PaymentService implements OnModuleInit {
   }
 
   private getPublicKeyFromWsClient(client: Socket): PublicKey {
-    // Get handshake headers
+    // Get handshake's headers
     const authHeader: string = client.request.headers.authorization;
     // Get bearer token from headers
     const bearerToken: string = authHeader.split(' ')[1];
@@ -217,5 +220,27 @@ export class PaymentService implements OnModuleInit {
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     // Add timeout to scheduler registry
     this.schedulerRegistry.addTimeout(taskName, timeout);
+  }
+
+  // TODO: Remove this test method
+  private async depositToTimedVault() {
+    try {
+      // TODO: remove hardcoded account
+      const user = Keypair.fromSecretKey(
+        new Uint8Array(JSON.parse(process.env.PRIVATE_KEY ?? '')),
+      );
+      const transaction = await this.program.methods
+        .depositToTimedVault(new anchor.BN(1_000_000))
+        .accounts({
+          user: user.publicKey,
+          token: this.USDC_TOKEN_ADDRESS,
+          tokenProgram: this.TOKEN_PROGRAM,
+        })
+        .signers([user])
+        .rpc();
+      console.log(transaction);
+    } catch (error) {
+      console.log(`Error: ${error}`);
+    }
   }
 }
