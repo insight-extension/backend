@@ -56,16 +56,18 @@ export class TranslationGateway
 
   async handleConnection(client: Socket) {
     // Check if user is authorized
-    this.wsJwtGuard.canActivate(client);
-    console.log(`Client connected: ${client.id}`);
-    this.paymentService.startPayingPerMinutes(client);
-    client.on('audioData', async (data: any) => {
-      if (data instanceof Uint8Array) {
-        await this.handleAudioData(Buffer.from(data), client);
-      } else {
-        console.warn('Unexpected data format:', typeof data);
-      }
-    });
+    const isAuthorized = await this.wsJwtGuard.canActivate(client);
+    if (isAuthorized) {
+      console.log(`Client connected: ${client.id}`);
+      this.paymentService.startPayingPerMinutes(client);
+      client.on('audioData', async (data: any) => {
+        if (data instanceof Uint8Array) {
+          await this.handleAudioData(Buffer.from(data), client);
+        } else {
+          console.warn('Unexpected data format:', typeof data);
+        }
+      });
+    }
   }
 
   async handleDisconnect(client: Socket) {

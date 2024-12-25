@@ -18,6 +18,7 @@ import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import bs58 from 'bs58';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -51,6 +52,7 @@ export class PaymentService implements OnModuleInit {
     );
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
+    this.depositToTimedVault();
   }
 
   onModuleInit() {
@@ -62,22 +64,24 @@ export class PaymentService implements OnModuleInit {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       console.log('User Public Key:', userPublicKey.toString());
-      // const [userInfoAddress] = PublicKey.findProgramAddressSync(
-      //   [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-      //   this.program.programId,
-      // );
-      // console.log('User Info Address:', userInfoAddress.toString());
-      const userAtaAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
-        userPublicKey,
+      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
+        this.program.programId,
       );
-
-      console.log('User ATA Address:', userAtaAddress.toString());
-      const userAtaBalance: number =
-        await this.getUserAtaBalance(userAtaAddress);
-      console.log('User ATA Balance:', userAtaBalance);
+      console.log('User Info Address:', userTimedInfoAddress.toString());
+      const userTimedVaultAddress = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userTimedInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+      // console.log('User ATA Address:', userAtaAddress.toString());
+      const userTimedVaultBalance: number = await this.getUserVaultBalance(
+        userTimedVaultAddress,
+      );
+      console.log('User vault Balance:', userTimedVaultBalance);
       // Check if user has sufficient balance
-      if (userAtaBalance < this.USDC_PRICE_PER_MINUTE) {
+      if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
       }
 
@@ -89,7 +93,7 @@ export class PaymentService implements OnModuleInit {
       // Determine the expiration time of the user's balance
       const usageTimeLimit: Date = this.getUsageTimeLimit(
         usageStartTime,
-        userAtaBalance,
+        userTimedVaultBalance,
       );
       console.log('Usage Time Limit:', usageTimeLimit);
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
@@ -98,7 +102,7 @@ export class PaymentService implements OnModuleInit {
         userPublicKey,
         usageStartTime,
         usageTimeLimit,
-        userAtaBalance,
+        userTimedVaultBalance,
       );
       console.log('Timeout set');
     } catch (error) {
@@ -175,10 +179,11 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async getUserAtaBalance(userAtaAddress: PublicKey): Promise<number> {
+  private async getUserVaultBalance(
+    userVaultAddress: PublicKey,
+  ): Promise<number> {
     const balanceInfo =
-      await this.connection.getTokenAccountBalance(userAtaAddress);
-    console.log('Balance:', balanceInfo.value.amount);
+      await this.connection.getTokenAccountBalance(userVaultAddress);
     const balance: number = parseInt(balanceInfo.value.amount);
     return balance;
   }
@@ -235,10 +240,10 @@ export class PaymentService implements OnModuleInit {
     try {
       // TODO: remove hardcoded account
       const user = Keypair.fromSecretKey(
-        new Uint8Array(JSON.parse(process.env.PRIVATE_KEY ?? '')),
+        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
       );
       const transaction = await this.program.methods
-        .depositToTimedVault(new anchor.BN(1_000_000))
+        .depositToTimedVault(new anchor.BN(30_000))
         .accounts({
           user: user.publicKey,
           token: this.USDC_TOKEN_ADDRESS,
