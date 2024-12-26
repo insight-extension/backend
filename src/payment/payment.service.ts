@@ -52,7 +52,7 @@ export class PaymentService implements OnModuleInit {
     );
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
-    this.depositToTimedVault();
+    // this.depositToTimedVault();
   }
 
   onModuleInit() {
@@ -68,18 +68,18 @@ export class PaymentService implements OnModuleInit {
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
-      console.log('User Info Address:', userTimedInfoAddress.toString());
+
       const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
-      // console.log('User ATA Address:', userAtaAddress.toString());
+
       const userTimedVaultBalance: number = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
-      console.log('User vault Balance:', userTimedVaultBalance);
+
       // Check if user has sufficient balance
       if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
@@ -89,13 +89,14 @@ export class PaymentService implements OnModuleInit {
       const usageStartTime: Date = new Date();
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
-
+      Logger.log(
+        `Cache set for user: ${userPublicKey.toString()} with start time: ${usageStartTime}`,
+      );
       // Determine the expiration time of the user's balance
       const usageTimeLimit: Date = this.getUsageTimeLimit(
         usageStartTime,
         userTimedVaultBalance,
       );
-      console.log('Usage Time Limit:', usageTimeLimit);
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       this.setBalanceExpirationTimeout(
         client,
@@ -104,10 +105,12 @@ export class PaymentService implements OnModuleInit {
         usageTimeLimit,
         userTimedVaultBalance,
       );
-      console.log('Timeout set');
+      Logger.log(
+        `Usage time limit set for user ${userPublicKey.toString()}: ${usageTimeLimit}`,
+      );
     } catch (error) {
       // Disconnect client if error occurs
-      Logger.error(`Error starting pay per time: ${error.message}`);
+      Logger.error(`Error starting pay per minutes: ${error}`);
       client._error(error);
     }
   }
@@ -116,45 +119,49 @@ export class PaymentService implements OnModuleInit {
     try {
       // Set the usage end time when the client stops paying per time
       const usageEndTime: Date = new Date();
+
       // Get the usage start time from cache
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
+
       // Calculate the usage time in milliseconds
       const timeDifference: number =
         usageEndTime.getTime() - usageStartTime.getTime();
+
       // Convert the time difference to minutes
       const timeDifferenceInMinutes: number = timeDifference / (60 * 1000);
 
       const SECONDS_TO_ROUND: number = 40;
+
       // Convert seconds into decimal format for comparison
-
       const convertedSeconds = SECONDS_TO_ROUND / 60;
-      // Round up the total used minutes if seconds > 40
 
+      // Round up the total used minutes if seconds > 40
       const totalUsedMinutes: number =
         timeDifferenceInMinutes % 1 >= convertedSeconds
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
       const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
-      console.log('Total Price:', totalPrice);
-
+      Logger.log(
+        `User's ${userPublicKey.toString()} total price: ${totalPrice}`,
+      );
       // Remove the usage start time from cache
       this.cacheManager.del(userPublicKey.toString());
-      console.log('Cache deleted');
+      Logger.log(`Cache deleted for user: ${userPublicKey.toString()}`);
 
       // Remove the timeout from scheduler
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-      console.log('Timeout deleted');
+      Logger.log(`Timeout deleted for user: ${userPublicKey.toString()}`);
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
         await this.payPerTime(userPublicKey, totalPrice);
-        console.log('Payment done');
       }
     } catch (error) {
-      Logger.error(`Error stopping pay per time: ${error.message}`);
+      Logger.error(`Error stopping pay per time: ${error}`);
       client._error(error);
     }
   }
@@ -173,7 +180,7 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log('Payment done: ', transaction);
+      Logger.log(`Payment done: ${transaction}`);
     } catch (error) {
       Logger.error(error);
     }
@@ -190,9 +197,10 @@ export class PaymentService implements OnModuleInit {
 
   private getUsageTimeLimit(
     startUsageTime: Date,
-    userAtaBalance: number,
+    userTimedVaultBalance: number,
   ): Date {
-    const minutesLimit: number = userAtaBalance / this.USDC_PRICE_PER_MINUTE;
+    const minutesLimit: number =
+      userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE;
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
 
     // Calculate the time limit for the user's balance
@@ -233,6 +241,9 @@ export class PaymentService implements OnModuleInit {
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     // Add timeout to scheduler registry
     this.schedulerRegistry.addTimeout(taskName, timeout);
+    Logger.log(
+      `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
+    );
   }
 
   // TODO: Remove this test method
