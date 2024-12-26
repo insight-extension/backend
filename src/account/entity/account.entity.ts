@@ -18,4 +18,22 @@ export class AccountEntity {
     description: 'Account created date',
   })
   createdAt: Date;
+
+  @ApiProperty({
+    type: Boolean,
+    description: 'Account balance freezing status',
+  })
+  isBalanceFrozen: boolean;
+
+  @ApiProperty({
+    type: Number,
+    description: 'Account free hours amount per week',
+  })
+  freeHours: number;
+
+  @ApiProperty({
+    type: Number,
+    description: `Account's free hours using start date`,
+  })
+  freeHoursStartDate: Date;
 }

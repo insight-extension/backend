@@ -7,16 +7,32 @@ import { AccountEntity } from './entity/account.entity';
 export class AccountService {
   constructor(private prisma: PrismaService) {}
 
-  async save(dto: SaveAccountDto): Promise<AccountEntity> {
+  async saveAccount(dto: SaveAccountDto): Promise<AccountEntity> {
     return await this.prisma.account.create({
       data: dto,
     });
   }
 
-  async findOneByPublicKey(publicKey: string): Promise<AccountEntity> {
+  async findOneByPublicKey(userPublicKey: string): Promise<AccountEntity> {
     return await this.prisma.account.findUnique({
       where: {
-        publicKey,
+        publicKey: userPublicKey,
+      },
+    });
+  }
+
+  async getBalanceFreezingStatus(userPublicKey: string): Promise<boolean> {
+    const account = await this.findOneByPublicKey(userPublicKey);
+    return account.isBalanceFrozen;
+  }
+
+  async setBalanceFreezingStatus(status: boolean, userPublicKey: string) {
+    this.prisma.account.update({
+      where: {
+        publicKey: userPublicKey,
+      },
+      data: {
+        isBalanceFrozen: status,
       },
     });
   }

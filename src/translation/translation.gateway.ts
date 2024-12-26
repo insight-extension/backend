@@ -58,8 +58,7 @@ export class TranslationGateway
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
     if (isAuthorized) {
-      console.log(`Client connected: ${client.id}`);
-      this.paymentService.startPayingPerMinutes(client);
+      this.paymentService.startPaymentWithRequiredMethod(client);
       client.on('audioData', async (data: any) => {
         if (data instanceof Uint8Array) {
           await this.handleAudioData(Buffer.from(data), client);
@@ -73,7 +72,7 @@ export class TranslationGateway
   async handleDisconnect(client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
     await this.cleanupSession(client.id);
-    this.paymentService.stopPayingPerMinutes(client);
+    await this.paymentService.stopPaymentWithRequiredMethod(client);
   }
 
   private async cleanupSession(clientId: string) {

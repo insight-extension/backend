@@ -19,13 +19,15 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import bs58 from 'bs58';
+import { SubscriptionType } from './constants/subscription-type.enum';
+import { AccountService } from 'src/account/account.service';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
   private readonly anchorProvider: AnchorProvider;
   private readonly connection: Connection;
   private readonly program: Program<DepositProgram>;
-  private readonly AnchorProviderWallet: Wallet;
+  private readonly anchorProviderWallet: Wallet;
   private readonly master: Keypair;
   private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
   private readonly USDC_TOKEN_ADDRESS = new PublicKey(
@@ -36,18 +38,19 @@ export class PaymentService implements OnModuleInit {
   constructor(
     private readonly jwtService: JwtService,
     private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly accountService: AccountService,
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {
     // Setup config
     this.master = Keypair.fromSecretKey(
       new Uint8Array(JSON.parse(process.env.MASTER_KEY ?? '')),
     );
     this.connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-    this.AnchorProviderWallet = new Wallet(this.master);
+    this.anchorProviderWallet = new Wallet(this.master);
     this.anchorProvider = new AnchorProvider(
       this.connection,
-      this.AnchorProviderWallet,
+      this.anchorProviderWallet,
       AnchorProvider.defaultOptions(),
     );
     setProvider(this.anchorProvider);
@@ -59,38 +62,43 @@ export class PaymentService implements OnModuleInit {
     Logger.log('Payment Service initialized');
   }
 
-  // TODO: add translation status for balance freezing
-  async startPayingPerMinutes(client: Socket) {
+  private async startPayingPerUsage(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      console.log('User Public Key:', userPublicKey.toString());
+      Logger.log(`User ${userPublicKey.toString()} started paying per usage`);
+
       const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
-
+      // PDA address where user's balance is stored
       const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
-
       const userTimedVaultBalance: number = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
-
       // Check if user has sufficient balance
       if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
       }
+      // Freeze user's balance
+      this.accountService.setBalanceFreezingStatus(
+        true,
+        userPublicKey.toString(),
+      );
+      Logger.log(`User's ${userPublicKey.toString()} balance is frozen`);
 
       // Define translation usage start time
       const usageStartTime: Date = new Date();
+
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
       Logger.log(
-        `Cache set for user: ${userPublicKey.toString()} with start time: ${usageStartTime}`,
+        `Cache set for user ${userPublicKey.toString()} with start time: ${usageStartTime}`,
       );
       // Determine the expiration time of the user's balance
       const usageTimeLimit: Date = this.getUsageTimeLimit(
@@ -110,12 +118,17 @@ export class PaymentService implements OnModuleInit {
       );
     } catch (error) {
       // Disconnect client if error occurs
-      Logger.error(`Error starting pay per minutes: ${error}`);
       client._error(error);
+      Logger.error(`Error starting pay per usage: ${error}`);
+
+      // Reset user's state to initial state as before translation started
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      this.returnUserToInitialState(userPublicKey);
+      Logger.log(`User's ${userPublicKey.toString()} state reset`);
     }
   }
 
-  async stopPayingPerMinutes(client: Socket) {
+  private async stopPayingPerUsage(client: Socket): Promise<void> {
     try {
       // Set the usage end time when the client stops paying per time
       const usageEndTime: Date = new Date();
@@ -139,22 +152,20 @@ export class PaymentService implements OnModuleInit {
       // Convert seconds into decimal format for comparison
       const convertedSeconds = SECONDS_TO_ROUND / 60;
 
-      // Round up the total used minutes if seconds > 40
+      // Round up the total used minutes if seconds >= 40
       const totalUsedMinutes: number =
         timeDifferenceInMinutes % 1 >= convertedSeconds
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
+
       const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
       Logger.log(
         `User's ${userPublicKey.toString()} total price: ${totalPrice}`,
       );
-      // Remove the usage start time from cache
-      this.cacheManager.del(userPublicKey.toString());
-      Logger.log(`Cache deleted for user: ${userPublicKey.toString()}`);
 
-      // Remove the timeout from scheduler
-      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-      Logger.log(`Timeout deleted for user: ${userPublicKey.toString()}`);
+      // Reset user's state to initial state as before translation started
+      this.returnUserToInitialState(userPublicKey);
+      Logger.log(`User's ${userPublicKey.toString()} state reset`);
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
@@ -169,7 +180,7 @@ export class PaymentService implements OnModuleInit {
   private async payPerTime(
     userPublicKey: PublicKey,
     totalPriceInRawUSDC: number,
-  ) {
+  ): Promise<void> {
     try {
       const transaction = await this.program.methods
         .payPerTime(new anchor.BN(totalPriceInRawUSDC))
@@ -226,15 +237,20 @@ export class PaymentService implements OnModuleInit {
     usageStartTime: Date,
     usageTimeLimit: Date,
     userAtaBalance: number,
-  ) {
+  ): Promise<void> {
     const millisecondsToExecute: number =
       usageTimeLimit.getTime() - usageStartTime.getTime();
     const taskName: string = userPublicKey.toString();
+    const totalPriceInRawUSDC: number = userAtaBalance;
 
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
-      await this.payPerTime(userPublicKey, userAtaBalance);
+      await this.payPerTime(userPublicKey, totalPriceInRawUSDC);
       this.cacheManager.del(userPublicKey.toString());
+      this.accountService.setBalanceFreezingStatus(
+        false,
+        userPublicKey.toString(),
+      );
       // TODO: Sent a message to the client to notify them of insufficient balance
       client.disconnect();
     };
@@ -246,10 +262,85 @@ export class PaymentService implements OnModuleInit {
     );
   }
 
+  // Reset user's state to initial state as before translation started
+  private async returnUserToInitialState(
+    userPublicKey: PublicKey,
+  ): Promise<void> {
+    // Remove user's cache
+    try {
+      this.cacheManager.del(userPublicKey.toString());
+    } catch (error) {
+      Logger.error(`Error deleting cache: ${error}`);
+    }
+    // Remove user's timeout
+    try {
+      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+    } catch (error) {
+      Logger.error(`Error deleting timeout: ${error}`);
+    }
+    // Set user's balance freezing status to false
+    try {
+      this.accountService.setBalanceFreezingStatus(
+        false,
+        userPublicKey.toString(),
+      );
+    } catch (error) {
+      Logger.error(`Error setting balance freezing status: ${error}`);
+    }
+  }
+
+  async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
+    // Get payment method from handshake's header
+    try {
+      // Required payment method from client
+      const subscriptionType = client.request.headers.subscription;
+
+      // Start payment method based on subscription type
+      // TODO: Implement the logic for starting payment method
+      switch (subscriptionType) {
+        case SubscriptionType.PER_USAGE:
+          await this.startPayingPerUsage(client);
+          break;
+        case SubscriptionType.PER_MONTH:
+          break;
+        case SubscriptionType.FREE_TRIAL:
+          break;
+        default:
+          throw new Error('Invalid subscription type');
+      }
+    } catch (error) {
+      client._error(error);
+      Logger.error(`Error starting payment method: ${error}`);
+    }
+  }
+
+  async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
+    // Get payment method from handshake's header
+    try {
+      // Required payment method from client
+      const subscriptionType = client.request.headers.subscription;
+
+      // Stop payment method based on subscription type
+      switch (subscriptionType) {
+        case SubscriptionType.PER_USAGE:
+          await this.stopPayingPerUsage(client);
+          break;
+        case SubscriptionType.PER_MONTH:
+          break;
+        case SubscriptionType.FREE_TRIAL:
+          break;
+        default:
+          throw new Error('Invalid subscription type');
+      }
+    } catch (error) {
+      client._error(error);
+      Logger.error(`Error starting payment method: ${error}`);
+    }
+  }
+
   // TODO: Remove this test method
   private async depositToTimedVault() {
     try {
-      // TODO: remove hardcoded account
       const user = Keypair.fromSecretKey(
         new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
       );

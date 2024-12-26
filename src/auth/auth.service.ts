@@ -33,7 +33,7 @@ export class AuthService {
       account.publicKey,
     );
     if (!accountExists) {
-      this.accountService.save(account);
+      this.accountService.saveAccount(account);
     }
     return {
       accessToken: this.generateAccessToken({ publicKey: account.publicKey }),

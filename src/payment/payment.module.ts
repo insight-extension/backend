@@ -3,6 +3,7 @@ import { PaymentService } from './payment.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AccountModule } from 'src/account/account.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     }),
     ScheduleModule.forRoot(),
     JwtModule,
+    AccountModule,
   ],
   providers: [PaymentService, JwtService],
   exports: [PaymentService],
