@@ -27,13 +27,19 @@ export class AccountEntity {
 
   @ApiProperty({
     type: Number,
-    description: 'Account free hours amount per week',
+    description: 'Account left free hours per week',
   })
-  freeHours: number;
+  freeHoursLeft: number;
 
   @ApiProperty({
     type: Number,
-    description: `Account's free hours using start date`,
+    description: `Account's free hours start using date`,
   })
-  freeHoursStartDate: Date;
+  freeHoursStartDate: Date | null;
+
+  @ApiProperty({
+    type: Number,
+    description: 'Left minutes from pay per hour usage',
+  })
+  perHoursLeft;
 }

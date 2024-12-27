@@ -21,6 +21,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
+import { use } from 'passport';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -37,8 +38,9 @@ export class PaymentService implements OnModuleInit {
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly schedulerRegistry: SchedulerRegistry,
     private readonly accountService: AccountService,
+    // schedulerRegistry<key: string(publicKey), value: Timeout>
+    private readonly schedulerRegistry: SchedulerRegistry,
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {
@@ -101,7 +103,7 @@ export class PaymentService implements OnModuleInit {
         `Cache set for user ${userPublicKey.toString()} with start time: ${usageStartTime}`,
       );
       // Determine the expiration time of the user's balance
-      const usageTimeLimit: Date = this.getUsageTimeLimit(
+      const usageTimeLimit: Date = this.getTimeLimitPerUsage(
         usageStartTime,
         userTimedVaultBalance,
       );
@@ -169,7 +171,7 @@ export class PaymentService implements OnModuleInit {
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
-        await this.payPerTime(userPublicKey, totalPrice);
+        await this.payPerTimeThroughProgram(userPublicKey, totalPrice);
       }
     } catch (error) {
       Logger.error(`Error stopping pay per time: ${error}`);
@@ -177,7 +179,116 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async payPerTime(
+  private async startFreeHoursUsing(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      let freeHoursStartDate: Date | null =
+        await this.accountService.getFreeHoursStartDate(
+          userPublicKey.toString(),
+        );
+      console.log(freeHoursStartDate);
+      const usageStartTime: Date = new Date();
+
+      // Set free hours start date if it's not set
+      if (freeHoursStartDate === null) {
+        await this.accountService.setFreeHoursStartDate(
+          usageStartTime,
+          userPublicKey.toString(),
+        );
+        freeHoursStartDate = usageStartTime;
+        console.log('Free hours start date set');
+      }
+      const userFreeHoursLeft: number = await this.accountService.getFreeHours(
+        userPublicKey.toString(),
+      );
+      console.log(userFreeHoursLeft);
+      // Check if user has free hours left or renew is available
+      if (userFreeHoursLeft === 0) {
+        const isFreeHoursAvailable: boolean =
+          await this.renewFreeHoursIfAvailable(
+            usageStartTime,
+            userPublicKey,
+            freeHoursStartDate,
+          );
+        if (!isFreeHoursAvailable) {
+          throw new Error('No free hours available');
+        }
+      }
+      // Set expiration timeout for free hours if it's not stopped manually by the user
+      this.setFreeHoursExpirationTimeout(
+        userFreeHoursLeft,
+        userPublicKey,
+        client,
+      );
+
+      this.cacheManager.set(userPublicKey.toString(), usageStartTime);
+      Logger.log(
+        `User ${userPublicKey.toString()} set cache with start time: ${usageStartTime}`,
+      );
+
+      Logger.log(
+        `User ${userPublicKey.toString()} started using free hours at ${usageStartTime}`,
+      );
+    } catch (error) {
+      Logger.error(`Error starting free hours usage: ${error}`);
+      client._error(error);
+
+      // Remove user's cache if error occurs and it's set
+      try {
+        const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+        this.cacheManager.del(userPublicKey.toString());
+        this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+      } catch (error) {
+        Logger.error(`Error deleting cache and timeout: ${error}`);
+      }
+    }
+  }
+
+  // TODO: Implement the logic for stopping free hours usage
+  private async stopFreeHoursUsing(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const usageEndTime: Date = new Date();
+      const usageStartTime: Date = await this.cacheManager.get(
+        userPublicKey.toString(),
+      );
+
+      // Calculate remaining free hours
+      const timeDifferenceInMilliseconds: number =
+        usageEndTime.getTime() - usageStartTime.getTime();
+      const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000;
+      const userFreeHoursLeft: number = await this.accountService.getFreeHours(
+        userPublicKey.toString(),
+      );
+      const totalUsedTime: number =
+        timeDifferenceInMilliseconds / ONE_HOUR_IN_MILLISECONDS;
+      const remainingFreeHours: number = userFreeHoursLeft - totalUsedTime;
+
+      // Set user's free hours to the remaining free hours
+      await this.accountService.setFreeHours(
+        remainingFreeHours,
+        userPublicKey.toString(),
+      );
+      Logger.log(
+        `User's ${userPublicKey.toString()} free hours decreased from ${userFreeHoursLeft} to ${remainingFreeHours}`,
+      );
+
+      this.cacheManager.del(userPublicKey.toString());
+      Logger.log(
+        `Cache deleted for user ${userPublicKey.toString()} after stopping free hours usage`,
+      );
+
+      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+      Logger.log(
+        `Timeout deleted for user ${userPublicKey.toString()} after stopping free hours usage`,
+      );
+    } catch (error) {
+      Logger.error(`Error stopping free hours usage: ${error}`);
+      client._error(error);
+    }
+  }
+
+  private async payPerTimeThroughProgram(
     userPublicKey: PublicKey,
     totalPriceInRawUSDC: number,
   ): Promise<void> {
@@ -206,7 +317,7 @@ export class PaymentService implements OnModuleInit {
     return balance;
   }
 
-  private getUsageTimeLimit(
+  private getTimeLimitPerUsage(
     startUsageTime: Date,
     userTimedVaultBalance: number,
   ): Date {
@@ -236,16 +347,16 @@ export class PaymentService implements OnModuleInit {
     userPublicKey: PublicKey,
     usageStartTime: Date,
     usageTimeLimit: Date,
-    userAtaBalance: number,
+    userTimedVaultBalance: number,
   ): Promise<void> {
     const millisecondsToExecute: number =
       usageTimeLimit.getTime() - usageStartTime.getTime();
     const taskName: string = userPublicKey.toString();
-    const totalPriceInRawUSDC: number = userAtaBalance;
+    const totalPriceInRawUSDC: number = userTimedVaultBalance;
 
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
-      await this.payPerTime(userPublicKey, totalPriceInRawUSDC);
+      await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
       this.cacheManager.del(userPublicKey.toString());
       this.accountService.setBalanceFreezingStatus(
         false,
@@ -255,6 +366,31 @@ export class PaymentService implements OnModuleInit {
       client.disconnect();
     };
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+    // Add timeout to scheduler registry
+    this.schedulerRegistry.addTimeout(taskName, timeout);
+    Logger.log(
+      `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
+    );
+  }
+
+  private async setFreeHoursExpirationTimeout(
+    userFreeHoursLeft: number,
+    userPublicKey: PublicKey,
+    client: Socket,
+  ): Promise<void> {
+    const timeoutCallback = async () => {
+      // Reset user's free hours to 0
+      await this.accountService.setFreeHours(0, userPublicKey.toString());
+      this.cacheManager.del(userPublicKey.toString());
+      Logger.log(
+        `User's ${userPublicKey.toString()} free hours expired. Timeout executed`,
+      );
+      // TODO: Sent a message to the client to notify them of expired balance
+      client.disconnect();
+    };
+    const millisecondsToExecute: number = userFreeHoursLeft * 60 * 1000;
+    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+    const taskName: string = userPublicKey.toString();
     // Add timeout to scheduler registry
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
@@ -292,11 +428,10 @@ export class PaymentService implements OnModuleInit {
   async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
     // Get payment method from handshake's header
     try {
-      // Required payment method from client
+      // Get required payment method from client
       const subscriptionType = client.request.headers.subscription;
 
       // Start payment method based on subscription type
-      // TODO: Implement the logic for starting payment method
       switch (subscriptionType) {
         case SubscriptionType.PER_USAGE:
           await this.startPayingPerUsage(client);
@@ -304,6 +439,7 @@ export class PaymentService implements OnModuleInit {
         case SubscriptionType.PER_MONTH:
           break;
         case SubscriptionType.FREE_TRIAL:
+          await this.startFreeHoursUsing(client);
           break;
         default:
           throw new Error('Invalid subscription type');
@@ -328,6 +464,7 @@ export class PaymentService implements OnModuleInit {
         case SubscriptionType.PER_MONTH:
           break;
         case SubscriptionType.FREE_TRIAL:
+          this.stopFreeHoursUsing(client);
           break;
         default:
           throw new Error('Invalid subscription type');
@@ -336,6 +473,39 @@ export class PaymentService implements OnModuleInit {
       client._error(error);
       Logger.error(`Error starting payment method: ${error}`);
     }
+  }
+
+  // Return true if free hours are renewed successfully or false otherwise
+  private async renewFreeHoursIfAvailable(
+    usageStartTime: Date,
+    userPublicKey: PublicKey,
+    freeHoursStartDate: Date | null,
+  ): Promise<boolean> {
+    // Get elapsed time since the user's free hours was received last time
+    const differenceInMilliseconds: number =
+      usageStartTime.getTime() - freeHoursStartDate.getTime();
+
+    const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
+
+    // Renew free hours and set the start date to the current time
+    if (differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS) {
+      const USER_DEFAULT_FREE_HOURS: number = 3;
+
+      await this.accountService.setFreeHours(
+        USER_DEFAULT_FREE_HOURS,
+        userPublicKey.toString(),
+      );
+
+      await this.accountService.setFreeHoursStartDate(
+        usageStartTime,
+        userPublicKey.toString(),
+      );
+      Logger.log(`User ${userPublicKey.toString()} free hours renewed`);
+      return true;
+    }
+    // Free hours not renewed
+    Logger.warn(`User ${userPublicKey.toString()} free hours not renewed`);
+    return false;
   }
 
   // TODO: Remove this test method
