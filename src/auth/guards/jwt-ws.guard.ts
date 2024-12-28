@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import 'dotenv/config';
 import { Socket } from 'socket.io';
@@ -40,8 +46,17 @@ export class WsJwtGuard {
       }
       return true;
     } catch (error) {
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error while authenticating user',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
       Logger.warn(`JWT verification failed: ${error.message}`);
-      client._error(error);
       return false;
     }
   }

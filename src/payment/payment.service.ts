@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import * as anchor from '@coral-xyz/anchor';
 import {
   AnchorProvider,
@@ -21,7 +28,6 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
-import { use } from 'passport';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -64,7 +70,7 @@ export class PaymentService implements OnModuleInit {
     Logger.log('Payment Service initialized');
   }
 
-  private async startPayingPerUsage(client: Socket): Promise<void> {
+  private async startPayingPerMinutes(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       Logger.log(`User ${userPublicKey.toString()} started paying per usage`);
@@ -73,6 +79,7 @@ export class PaymentService implements OnModuleInit {
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
+
       // PDA address where user's balance is stored
       const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
@@ -83,10 +90,12 @@ export class PaymentService implements OnModuleInit {
       const userTimedVaultBalance: number = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
+
       // Check if user has sufficient balance
       if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error('Insufficient balance');
       }
+
       // Freeze user's balance
       this.accountService.setBalanceFreezingStatus(
         true,
@@ -102,11 +111,13 @@ export class PaymentService implements OnModuleInit {
       Logger.log(
         `Cache set for user ${userPublicKey.toString()} with start time: ${usageStartTime}`,
       );
+
       // Determine the expiration time of the user's balance
-      const usageTimeLimit: Date = this.getTimeLimitPerUsage(
+      const usageTimeLimit: Date = this.getTimeLimitPerMinutes(
         usageStartTime,
         userTimedVaultBalance,
       );
+
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       this.setBalanceExpirationTimeout(
         client,
@@ -118,26 +129,37 @@ export class PaymentService implements OnModuleInit {
       Logger.log(
         `Usage time limit set for user ${userPublicKey.toString()}: ${usageTimeLimit}`,
       );
-    } catch (error) {
       // Disconnect client if error occurs
-      client._error(error);
+    } catch (error) {
       Logger.error(`Error starting pay per usage: ${error}`);
 
-      // Reset user's state to initial state as before translation started
+      // TODO: Rewrite with separate method and i18n support
+      // Emit error to client
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error starting pay per usage',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
+
+      // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      this.returnUserToInitialState(userPublicKey);
-      Logger.log(`User's ${userPublicKey.toString()} state reset`);
+      this.clearUserResources(userPublicKey);
+      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
     }
   }
 
-  private async stopPayingPerUsage(client: Socket): Promise<void> {
+  private async stopPayingPerMinutes(client: Socket): Promise<void> {
     try {
       // Set the usage end time when the client stops paying per time
       const usageEndTime: Date = new Date();
 
       // Get the usage start time from cache
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
@@ -149,9 +171,8 @@ export class PaymentService implements OnModuleInit {
       // Convert the time difference to minutes
       const timeDifferenceInMinutes: number = timeDifference / (60 * 1000);
 
-      const SECONDS_TO_ROUND: number = 40;
-
       // Convert seconds into decimal format for comparison
+      const SECONDS_TO_ROUND: number = 40;
       const convertedSeconds = SECONDS_TO_ROUND / 60;
 
       // Round up the total used minutes if seconds >= 40
@@ -166,7 +187,7 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Reset user's state to initial state as before translation started
-      this.returnUserToInitialState(userPublicKey);
+      this.clearUserResources(userPublicKey);
       Logger.log(`User's ${userPublicKey.toString()} state reset`);
 
       // Withdraw money from user using program
@@ -174,8 +195,18 @@ export class PaymentService implements OnModuleInit {
         await this.payPerTimeThroughProgram(userPublicKey, totalPrice);
       }
     } catch (error) {
+      // Disconnect client if error occurs
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error stopping pay per usage',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
       Logger.error(`Error stopping pay per time: ${error}`);
-      client._error(error);
     }
   }
 
@@ -186,7 +217,6 @@ export class PaymentService implements OnModuleInit {
         await this.accountService.getFreeHoursStartDate(
           userPublicKey.toString(),
         );
-      console.log(freeHoursStartDate);
       const usageStartTime: Date = new Date();
 
       // Set free hours start date if it's not set
@@ -198,11 +228,11 @@ export class PaymentService implements OnModuleInit {
         freeHoursStartDate = usageStartTime;
         console.log('Free hours start date set');
       }
+
+      // Check if user has free hours left or renew is available
       const userFreeHoursLeft: number = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
-      console.log(userFreeHoursLeft);
-      // Check if user has free hours left or renew is available
       if (userFreeHoursLeft === 0) {
         const isFreeHoursAvailable: boolean =
           await this.renewFreeHoursIfAvailable(
@@ -214,6 +244,7 @@ export class PaymentService implements OnModuleInit {
           throw new Error('No free hours available');
         }
       }
+
       // Set expiration timeout for free hours if it's not stopped manually by the user
       this.setFreeHoursExpirationTimeout(
         userFreeHoursLeft,
@@ -231,7 +262,16 @@ export class PaymentService implements OnModuleInit {
       );
     } catch (error) {
       Logger.error(`Error starting free hours usage: ${error}`);
-      client._error(error);
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error starting free hours usage',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
 
       // Remove user's cache if error occurs and it's set
       try {
@@ -244,7 +284,6 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  // TODO: Implement the logic for stopping free hours usage
   private async stopFreeHoursUsing(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
@@ -256,12 +295,16 @@ export class PaymentService implements OnModuleInit {
       // Calculate remaining free hours
       const timeDifferenceInMilliseconds: number =
         usageEndTime.getTime() - usageStartTime.getTime();
-      const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000;
+
+      const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000; // minutes * seconds * milliseconds
+
       const userFreeHoursLeft: number = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
+
       const totalUsedTime: number =
         timeDifferenceInMilliseconds / ONE_HOUR_IN_MILLISECONDS;
+
       const remainingFreeHours: number = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
@@ -284,7 +327,18 @@ export class PaymentService implements OnModuleInit {
       );
     } catch (error) {
       Logger.error(`Error stopping free hours usage: ${error}`);
-      client._error(error);
+
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error stopping free hours usage',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+
+      client.emit('error', errorToEmit);
+      client.disconnect();
     }
   }
 
@@ -313,16 +367,19 @@ export class PaymentService implements OnModuleInit {
   ): Promise<number> {
     const balanceInfo =
       await this.connection.getTokenAccountBalance(userVaultAddress);
+
     const balance: number = parseInt(balanceInfo.value.amount);
     return balance;
   }
 
-  private getTimeLimitPerUsage(
+  private getTimeLimitPerMinutes(
     startUsageTime: Date,
     userTimedVaultBalance: number,
   ): Date {
     const minutesLimit: number =
       userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE;
+
+    // Convert minutes limit to milliseconds
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
 
     // Calculate the time limit for the user's balance
@@ -351,6 +408,7 @@ export class PaymentService implements OnModuleInit {
   ): Promise<void> {
     const millisecondsToExecute: number =
       usageTimeLimit.getTime() - usageStartTime.getTime();
+
     const taskName: string = userPublicKey.toString();
     const totalPriceInRawUSDC: number = userTimedVaultBalance;
 
@@ -362,11 +420,24 @@ export class PaymentService implements OnModuleInit {
         false,
         userPublicKey.toString(),
       );
-      // TODO: Sent a message to the client to notify them of insufficient balance
+
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error while using pay per usage',
+          error: 'Balance expired',
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
       client.disconnect();
+      Logger.log(
+        `User's ${userPublicKey.toString()} balance expired. Timeout executed`,
+      );
     };
-    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+
     // Add timeout to scheduler registry
+    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
       `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
@@ -381,17 +452,30 @@ export class PaymentService implements OnModuleInit {
     const timeoutCallback = async () => {
       // Reset user's free hours to 0
       await this.accountService.setFreeHours(0, userPublicKey.toString());
+
       this.cacheManager.del(userPublicKey.toString());
       Logger.log(
         `User's ${userPublicKey.toString()} free hours expired. Timeout executed`,
       );
-      // TODO: Sent a message to the client to notify them of expired balance
+
+      // Emit error to client and disconnect him
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error while using free hours',
+          error: 'Free hours expired',
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
       client.disconnect();
     };
+
+    // Add timeout to scheduler registry
     const millisecondsToExecute: number = userFreeHoursLeft * 60 * 1000;
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     const taskName: string = userPublicKey.toString();
-    // Add timeout to scheduler registry
+
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
       `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
@@ -399,9 +483,7 @@ export class PaymentService implements OnModuleInit {
   }
 
   // Reset user's state to initial state as before translation started
-  private async returnUserToInitialState(
-    userPublicKey: PublicKey,
-  ): Promise<void> {
+  private async clearUserResources(userPublicKey: PublicKey): Promise<void> {
     // Remove user's cache
     try {
       this.cacheManager.del(userPublicKey.toString());
@@ -426,15 +508,14 @@ export class PaymentService implements OnModuleInit {
   }
 
   async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
-    // Get payment method from handshake's header
     try {
-      // Get required payment method from client
+      // Get required payment method from client handshake's header
       const subscriptionType = client.request.headers.subscription;
 
       // Start payment method based on subscription type
       switch (subscriptionType) {
         case SubscriptionType.PER_USAGE:
-          await this.startPayingPerUsage(client);
+          await this.startPayingPerMinutes(client);
           break;
         case SubscriptionType.PER_MONTH:
           break;
@@ -445,21 +526,31 @@ export class PaymentService implements OnModuleInit {
           throw new Error('Invalid subscription type');
       }
     } catch (error) {
-      client._error(error);
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error starting translation with required payment method',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+
+      client.emit('error', errorToEmit);
+      client.disconnect();
+
       Logger.error(`Error starting payment method: ${error}`);
     }
   }
 
   async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
-    // Get payment method from handshake's header
     try {
-      // Required payment method from client
+      // Get payment method from client handshake's header
       const subscriptionType = client.request.headers.subscription;
 
       // Stop payment method based on subscription type
       switch (subscriptionType) {
         case SubscriptionType.PER_USAGE:
-          await this.stopPayingPerUsage(client);
+          await this.stopPayingPerMinutes(client);
           break;
         case SubscriptionType.PER_MONTH:
           break;
@@ -470,7 +561,19 @@ export class PaymentService implements OnModuleInit {
           throw new Error('Invalid subscription type');
       }
     } catch (error) {
-      client._error(error);
+      // Emit error to client and disconnect him
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error stopping translation with required payment method',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+
+      client.emit('error', errorToEmit);
+      client.disconnect();
+
       Logger.error(`Error starting payment method: ${error}`);
     }
   }
@@ -487,7 +590,7 @@ export class PaymentService implements OnModuleInit {
 
     const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
 
-    // Renew free hours and set the start date to the current time
+    // Renew free hours and set the start date to the current time if difference is greater than or equal to a week
     if (differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS) {
       const USER_DEFAULT_FREE_HOURS: number = 3;
 
