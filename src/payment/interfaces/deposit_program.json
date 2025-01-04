@@ -1,5 +1,5 @@
 {
-  "address": "DxWhmvfUXfbPrakjq25UFM1mXk1RuqEfgnfC9fvyXrkw",
+  "address": "7ttwWrz4cAwKJQqCN6TAWPTznAUkWUjb1qouiZzPNxwP",
   "metadata": {
     "name": "deposit_program",
     "version": "0.1.0",
@@ -591,15 +591,14 @@
       ],
       "accounts": [
         {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "master",
           "writable": true,
           "signer": true,
           "address": "71q6LEWUkPZhYChjAcZcuxVVyDqdEyjf95etzte2PzwK"
+        },
+        {
+          "name": "user",
+          "writable": true
         },
         {
           "name": "token"
@@ -785,15 +784,14 @@
       ],
       "accounts": [
         {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "master",
           "writable": true,
           "signer": true,
           "address": "71q6LEWUkPZhYChjAcZcuxVVyDqdEyjf95etzte2PzwK"
+        },
+        {
+          "name": "user",
+          "writable": true
         },
         {
           "name": "token"
@@ -959,262 +957,6 @@
       "args": []
     },
     {
-      "name": "subscribe",
-      "discriminator": [
-        254,
-        28,
-        191,
-        138,
-        156,
-        179,
-        183,
-        53
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "master",
-          "writable": true,
-          "signer": true,
-          "address": "71q6LEWUkPZhYChjAcZcuxVVyDqdEyjf95etzte2PzwK"
-        },
-        {
-          "name": "token"
-        },
-        {
-          "name": "user_token_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "user"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "token"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "user_subscription_info",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  117,
-                  115,
-                  101,
-                  114,
-                  95,
-                  115,
-                  117,
-                  98,
-                  115,
-                  99,
-                  114,
-                  105,
-                  112,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  105,
-                  110,
-                  102,
-                  111
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "user"
-              }
-            ]
-          }
-        },
-        {
-          "name": "subscription_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "user_subscription_info"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "token"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "master_token_account",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "master"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "token"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "token_program"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "subscribe_with_vault",
       "discriminator": [
         207,
@@ -1228,15 +970,14 @@
       ],
       "accounts": [
         {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
           "name": "master",
           "writable": true,
           "signer": true,
           "address": "71q6LEWUkPZhYChjAcZcuxVVyDqdEyjf95etzte2PzwK"
+        },
+        {
+          "name": "user",
+          "writable": true
         },
         {
           "name": "token"

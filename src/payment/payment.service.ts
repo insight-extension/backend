@@ -13,7 +13,6 @@ import {
   setProvider,
   Wallet,
 } from '@coral-xyz/anchor';
-import type { DepositProgram } from './interfaces/deposit_program';
 import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
 import 'dotenv/config';
 import * as idl from './interfaces/deposit_program.json';
@@ -28,6 +27,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
+import { DepositProgram } from './interfaces/deposit_program';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -41,6 +41,7 @@ export class PaymentService implements OnModuleInit {
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
   private readonly USDC_PRICE_PER_MINUTE = 0.03 * 1_000_000; // 0.03 USDC in raw format
+  private readonly USDC_PRICE_PER_HOUR = 1.2 * 1_000_000; // 1.20 USDC in raw format
 
   constructor(
     private readonly jwtService: JwtService,
@@ -63,7 +64,8 @@ export class PaymentService implements OnModuleInit {
     );
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
-    // this.depositToTimedVault();
+    // TODO: remove
+    //this.depositToTimedVault();
   }
 
   onModuleInit() {
@@ -87,6 +89,7 @@ export class PaymentService implements OnModuleInit {
         true,
         this.TOKEN_PROGRAM,
       );
+
       const userTimedVaultBalance: number = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
@@ -97,7 +100,7 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Freeze user's balance
-      this.accountService.setBalanceFreezingStatus(
+      await this.accountService.setBalanceFreezingStatus(
         true,
         userPublicKey.toString(),
       );
@@ -119,7 +122,7 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
-      this.setBalanceExpirationTimeout(
+      await this.setBalanceExpirationTimeout(
         client,
         userPublicKey,
         usageStartTime,
@@ -148,7 +151,7 @@ export class PaymentService implements OnModuleInit {
 
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      this.clearUserResources(userPublicKey);
+      await this.clearUserResources(userPublicKey);
       Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
     }
   }
@@ -171,13 +174,13 @@ export class PaymentService implements OnModuleInit {
       // Convert the time difference to minutes
       const timeDifferenceInMinutes: number = timeDifference / (60 * 1000);
 
-      // Convert seconds into decimal format for comparison
+      // Convert seconds into minutes for comparison
       const SECONDS_TO_ROUND: number = 40;
-      const convertedSeconds = SECONDS_TO_ROUND / 60;
+      const secondsInMinutes = SECONDS_TO_ROUND / 60;
 
       // Round up the total used minutes if seconds >= 40
       const totalUsedMinutes: number =
-        timeDifferenceInMinutes % 1 >= convertedSeconds
+        timeDifferenceInMinutes % 1 >= secondsInMinutes
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
 
@@ -187,7 +190,7 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Reset user's state to initial state as before translation started
-      this.clearUserResources(userPublicKey);
+      await this.clearUserResources(userPublicKey);
       Logger.log(`User's ${userPublicKey.toString()} state reset`);
 
       // Withdraw money from user using program
@@ -342,6 +345,186 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
+  private async startPayingPerHours(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
+
+      // PDA address where user's balance is stored
+      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userTimedInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+      const userTimedVaultBalance: number = await this.getUserVaultBalance(
+        userTimedVaultAddress,
+      );
+
+      // Get user's hours left in decimal hours
+      const perHoursLeft: number = await this.accountService.getPerHoursLeft(
+        userPublicKey.toString(),
+      );
+      const hasRemainingHours: boolean = perHoursLeft > 0;
+      // Check if user have not used free hours from last using or sufficient balance to buy an hour
+      if (
+        perHoursLeft === 0 &&
+        userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
+      ) {
+        throw new Error('Insufficient balance');
+      }
+
+      // Freeze user's balance
+      await this.accountService.setBalanceFreezingStatus(
+        true,
+        userPublicKey.toString(),
+      );
+      Logger.log(`User's ${userPublicKey.toString()} balance is frozen`);
+
+      // Define translation usage start time
+      const usageStartTime: Date = new Date();
+
+      // Store the usage start time in cache associated with the client's public key
+      this.cacheManager.set(userPublicKey.toString(), usageStartTime);
+      Logger.log(`Cache set for user ${userPublicKey.toString()}`);
+
+      // Determine the expiration time of the user's balance
+      const availableTimeFromBalance: number = Math.floor(
+        userTimedVaultBalance / this.USDC_PRICE_PER_HOUR,
+      );
+
+      const availableTimeInMilliseconds: number =
+        availableTimeFromBalance * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+
+      let usageTimeLimit: Date = new Date(availableTimeInMilliseconds);
+
+      // Recalculate the time limit for the user's balance if free hours are available
+      if (perHoursLeft > 0) {
+        const perHoursLeftInMilliseconds: number =
+          perHoursLeft * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+
+        // Add hours left to the available time
+        usageTimeLimit = new Date(
+          availableTimeInMilliseconds + perHoursLeftInMilliseconds,
+        );
+      }
+
+      // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
+      await this.setBalanceExpirationTimeout(
+        client,
+        userPublicKey,
+        usageStartTime,
+        usageTimeLimit,
+        userTimedVaultBalance,
+        hasRemainingHours,
+      );
+      Logger.log(
+        `Usage time limit set for user ${userPublicKey.toString()}: ${usageTimeLimit}`,
+      );
+
+      Logger.log(`User ${userPublicKey.toString()} started paying per hours`);
+    } catch (error) {
+      Logger.error(`Error starting pay per hour: ${error}`);
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error starting pay per hour',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
+
+      // Release resources if error occurs
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey);
+      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
+    }
+  }
+
+  private async stopPayingPerHours(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const usageEndTime: Date = new Date();
+      const usageStartTime: Date = await this.cacheManager.get(
+        userPublicKey.toString(),
+      );
+
+      // Calculate the total used time in milliseconds
+      const usageTimeInMilliseconds: number =
+        usageEndTime.getTime() - usageStartTime.getTime();
+
+      const perHoursLeft: number = await this.accountService.getPerHoursLeft(
+        userPublicKey.toString(),
+      );
+
+      const usageTimeInHours: number =
+        usageTimeInMilliseconds / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
+
+      const totalUsageInHours = perHoursLeft - usageTimeInHours;
+
+      // If totalUsage is negative, user has used more remaining hours than he has left
+      if (totalUsageInHours < 0) {
+        // Calculate the total usage that should be paid (without hours left)
+        const totalUsageToPayInHours: number = Math.ceil(
+          Math.abs(totalUsageInHours),
+        );
+
+        // Set per hours left after the usage
+        const newPerHoursLeft: number =
+          totalUsageToPayInHours - Math.abs(totalUsageInHours);
+
+        await this.accountService.setPerHoursLeft(
+          newPerHoursLeft,
+          userPublicKey.toString(),
+        );
+
+        Logger.log(
+          `User's ${userPublicKey.toString()} per hours left: ${newPerHoursLeft}`,
+        );
+
+        // Calculate the total price for the used hours
+        const totalPriceInRawUSDC: number =
+          totalUsageToPayInHours * this.USDC_PRICE_PER_HOUR;
+
+        // Pay for the used hours
+        await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
+        Logger.log(
+          `User ${userPublicKey.toString()} paid ${totalPriceInRawUSDC} USDC for ${totalUsageToPayInHours} used hours`,
+        );
+      } else {
+        // Set per hours left after the usage
+        await this.accountService.setPerHoursLeft(
+          totalUsageInHours,
+          userPublicKey.toString(),
+        );
+      }
+
+      // Reset user's state to initial state as before translation started
+      await this.clearUserResources(userPublicKey);
+    } catch (error) {
+      Logger.error(`Error stopping pay per hour: ${error}`);
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error stopping pay per hour',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit);
+      client.disconnect();
+
+      // Release resources if error occurs
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey);
+    }
+  }
+
   private async payPerTimeThroughProgram(
     userPublicKey: PublicKey,
     totalPriceInRawUSDC: number,
@@ -363,11 +546,11 @@ export class PaymentService implements OnModuleInit {
   }
 
   private async getUserVaultBalance(
-    userVaultAddress: PublicKey,
+    userTimedVaultAddress: PublicKey,
   ): Promise<number> {
-    const balanceInfo =
-      await this.connection.getTokenAccountBalance(userVaultAddress);
-
+    const balanceInfo = await this.connection.getTokenAccountBalance(
+      userTimedVaultAddress,
+    );
     const balance: number = parseInt(balanceInfo.value.amount);
     return balance;
   }
@@ -376,8 +559,10 @@ export class PaymentService implements OnModuleInit {
     startUsageTime: Date,
     userTimedVaultBalance: number,
   ): Date {
-    const minutesLimit: number =
-      userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE;
+    // Round down the user's balance to the nearest available minute
+    const minutesLimit: number = Math.floor(
+      userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE,
+    );
 
     // Convert minutes limit to milliseconds
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
@@ -392,8 +577,10 @@ export class PaymentService implements OnModuleInit {
   private getPublicKeyFromWsClient(client: Socket): PublicKey {
     // Get handshake's headers
     const authHeader: string = client.request.headers.authorization;
+
     // Get bearer token from headers
     const bearerToken: string = authHeader.split(' ')[1];
+
     // Encode payload from token
     const payload = this.jwtService.decode(bearerToken);
     return new PublicKey(payload.publicKey);
@@ -404,23 +591,35 @@ export class PaymentService implements OnModuleInit {
     userPublicKey: PublicKey,
     usageStartTime: Date,
     usageTimeLimit: Date,
-    userTimedVaultBalance: number,
+    totalPriceInRawUSDC: number,
+    hasRemainingHours: boolean = false, // Only for per hours payment
   ): Promise<void> {
     const millisecondsToExecute: number =
       usageTimeLimit.getTime() - usageStartTime.getTime();
 
     const taskName: string = userPublicKey.toString();
-    const totalPriceInRawUSDC: number = userTimedVaultBalance;
 
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
+      // Pay for the used time
       await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
+      Logger.log(
+        `User ${userPublicKey.toString()} paid for the used time: ${totalPriceInRawUSDC} USDC`,
+      );
+
+      // Reset hours left for paying per hours
+      if (hasRemainingHours) {
+        await this.accountService.setPerHoursLeft(0, userPublicKey.toString());
+      }
+
+      // Clear user's resources
       this.cacheManager.del(userPublicKey.toString());
       this.accountService.setBalanceFreezingStatus(
         false,
         userPublicKey.toString(),
       );
 
+      // Emit error to client and disconnect him
       const errorToEmit = new HttpException(
         {
           message: 'Error while using pay per usage',
@@ -490,13 +689,15 @@ export class PaymentService implements OnModuleInit {
     } catch (error) {
       Logger.error(`Error deleting cache: ${error}`);
     }
+
     // Remove user's timeout
     try {
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
     } catch (error) {
       Logger.error(`Error deleting timeout: ${error}`);
     }
-    // Set user's balance freezing status to false
+
+    // Unfreeze user's balance
     try {
       this.accountService.setBalanceFreezingStatus(
         false,
@@ -521,6 +722,9 @@ export class PaymentService implements OnModuleInit {
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.startFreeHoursUsing(client);
+          break;
+        case SubscriptionType.PER_HOURS:
+          this.startPayingPerHours(client);
           break;
         default:
           throw new Error('Invalid subscription type');
@@ -556,6 +760,9 @@ export class PaymentService implements OnModuleInit {
           break;
         case SubscriptionType.FREE_TRIAL:
           this.stopFreeHoursUsing(client);
+          break;
+        case SubscriptionType.PER_HOURS:
+          this.stopPayingPerHours(client);
           break;
         default:
           throw new Error('Invalid subscription type');

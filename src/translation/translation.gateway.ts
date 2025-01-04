@@ -58,7 +58,9 @@ export class TranslationGateway
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
     if (isAuthorized) {
+      // Start translation with required payment method
       this.paymentService.startPaymentWithRequiredMethod(client);
+
       client.on('audioData', async (data: any) => {
         if (data instanceof Uint8Array) {
           await this.handleAudioData(Buffer.from(data), client);
