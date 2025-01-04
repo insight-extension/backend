@@ -136,17 +136,10 @@ export class PaymentService implements OnModuleInit {
     } catch (error) {
       Logger.error(`Error starting pay per usage: ${error}`);
 
-      // TODO: Rewrite with separate method and i18n support
+      // TODO: Rewrite with i18n support
       // Emit error to client
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error starting pay per usage',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+      const message: string = 'Error starting pay per usage';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -199,15 +192,8 @@ export class PaymentService implements OnModuleInit {
       }
     } catch (error) {
       // Disconnect client if error occurs
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error stopping pay per usage',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+      const message: string = 'Error stopping pay per usage';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.error(`Error stopping pay per time: ${error}`);
     }
@@ -265,15 +251,10 @@ export class PaymentService implements OnModuleInit {
       );
     } catch (error) {
       Logger.error(`Error starting free hours usage: ${error}`);
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error starting free hours usage',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+
+      // Emit error to client and disconnect him
+      const message: string = 'Error starting free hours usage';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       // Remove user's cache if error occurs and it's set
@@ -331,16 +312,9 @@ export class PaymentService implements OnModuleInit {
     } catch (error) {
       Logger.error(`Error stopping free hours usage: ${error}`);
 
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error stopping free hours usage',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-
-      client.emit('error', errorToEmit);
+      // Emit error to client and disconnect him
+      const message: string = 'Error stopping free hours usage';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     }
   }
@@ -431,15 +405,10 @@ export class PaymentService implements OnModuleInit {
       Logger.log(`User ${userPublicKey.toString()} started paying per hours`);
     } catch (error) {
       Logger.error(`Error starting pay per hour: ${error}`);
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error starting pay per hour',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+
+      // Emit error to client and disconnect him
+      const message: string = 'Error starting paying per hours';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -473,13 +442,11 @@ export class PaymentService implements OnModuleInit {
       // If totalUsage is negative, user has used more remaining hours than he has left
       if (totalUsageInHours < 0) {
         // Calculate the total usage that should be paid (without hours left)
-        const totalUsageToPayInHours: number = Math.ceil(
-          Math.abs(totalUsageInHours),
-        );
+        const totalHoursToPay: number = Math.ceil(Math.abs(totalUsageInHours));
 
         // Set per hours left after the usage
         const newPerHoursLeft: number =
-          totalUsageToPayInHours - Math.abs(totalUsageInHours);
+          totalHoursToPay - Math.abs(totalUsageInHours);
 
         await this.accountService.setPerHoursLeft(
           newPerHoursLeft,
@@ -492,12 +459,12 @@ export class PaymentService implements OnModuleInit {
 
         // Calculate the total price for the used hours
         const totalPriceInRawUSDC: number =
-          totalUsageToPayInHours * this.USDC_PRICE_PER_HOUR;
+          totalHoursToPay * this.USDC_PRICE_PER_HOUR;
 
         // Pay for the used hours
         await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
         Logger.log(
-          `User ${userPublicKey.toString()} paid ${totalPriceInRawUSDC} USDC for ${totalUsageToPayInHours} used hours`,
+          `User ${userPublicKey.toString()} paid ${totalPriceInRawUSDC} USDC for ${totalHoursToPay} used hours`,
         );
       } else {
         // Set per hours left after the usage
@@ -515,15 +482,10 @@ export class PaymentService implements OnModuleInit {
       Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
     } catch (error) {
       Logger.error(`Error stopping pay per hour: ${error}`);
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error stopping pay per hour',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+
+      // Emit error to client and disconnect him
+      const message: string = 'Error stopping paying per hours';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -627,15 +589,9 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Emit error to client and disconnect him
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error while using pay per usage',
-          error: 'Balance expired',
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+      const message: string = 'Error while using pay per time';
+      const error: string = 'Balance expired';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.log(
         `User's ${userPublicKey.toString()} balance expired. Timeout executed`,
@@ -665,15 +621,9 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Emit error to client and disconnect him
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error while using free hours',
-          error: 'Free hours expired',
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-      client.emit('error', errorToEmit);
+      const message: string = 'Error while using free hours';
+      const error: string = 'Free hours expired';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     };
 
@@ -737,16 +687,10 @@ export class PaymentService implements OnModuleInit {
           throw new Error('Invalid subscription type');
       }
     } catch (error) {
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error starting translation with required payment method',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-
-      client.emit('error', errorToEmit);
+      // Emit error to client and disconnect him
+      const message: string =
+        'Error starting translation with required payment method';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       Logger.error(`Error starting payment method: ${error}`);
@@ -776,16 +720,9 @@ export class PaymentService implements OnModuleInit {
       }
     } catch (error) {
       // Emit error to client and disconnect him
-      const errorToEmit = new HttpException(
-        {
-          message: 'Error stopping translation with required payment method',
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-
-      client.emit('error', errorToEmit);
+      const message: string =
+        'Error stopping translation with required payment method';
+      this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
       Logger.error(`Error starting payment method: ${error}`);
@@ -823,6 +760,23 @@ export class PaymentService implements OnModuleInit {
     // Free hours not renewed
     Logger.warn(`User ${userPublicKey.toString()} free hours not renewed`);
     return false;
+  }
+
+  private emitErrorToWsClient(
+    client: Socket,
+    message: string,
+    error: any,
+    statusCode: number = HttpStatus.FORBIDDEN,
+  ): void {
+    const errorToEmit = new HttpException(
+      {
+        message,
+        error: error.message,
+        statusCode,
+      },
+      statusCode,
+    );
+    client.emit('error', errorToEmit.getResponse());
   }
 
   // TODO: Remove this test method
