@@ -65,7 +65,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    //this.depositToTimedVault();
+    //this.depositToTimedVault(this.USDC_PRICE_PER_HOUR);
   }
 
   onModuleInit() {
@@ -395,11 +395,14 @@ export class PaymentService implements OnModuleInit {
       const availableTimeFromBalance: number = Math.floor(
         userTimedVaultBalance / this.USDC_PRICE_PER_HOUR,
       );
-
+      console.log('userTimedVaultBalance: ', userTimedVaultBalance);
       const availableTimeInMilliseconds: number =
         availableTimeFromBalance * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+      console.log('availableTimeInMilliseconds: ', availableTimeInMilliseconds);
 
-      let usageTimeLimit: Date = new Date(availableTimeInMilliseconds);
+      let usageTimeLimit: Date = new Date(
+        Date.now() + availableTimeInMilliseconds,
+      );
 
       // Recalculate the time limit for the user's balance if free hours are available
       if (perHoursLeft > 0) {
@@ -408,7 +411,7 @@ export class PaymentService implements OnModuleInit {
 
         // Add hours left to the available time
         usageTimeLimit = new Date(
-          availableTimeInMilliseconds + perHoursLeftInMilliseconds,
+          Date.now() + availableTimeInMilliseconds + perHoursLeftInMilliseconds,
         );
       }
 
@@ -502,10 +505,14 @@ export class PaymentService implements OnModuleInit {
           totalUsageInHours,
           userPublicKey.toString(),
         );
+        Logger.log(
+          `User's ${userPublicKey.toString()} per hours left: ${totalUsageInHours}`,
+        );
       }
 
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
+      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
     } catch (error) {
       Logger.error(`Error stopping pay per hour: ${error}`);
       const errorToEmit = new HttpException(
@@ -819,13 +826,13 @@ export class PaymentService implements OnModuleInit {
   }
 
   // TODO: Remove this test method
-  private async depositToTimedVault() {
+  private async depositToTimedVault(price: number): Promise<void> {
     try {
       const user = Keypair.fromSecretKey(
         new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
       );
       const transaction = await this.program.methods
-        .depositToTimedVault(new anchor.BN(30_000))
+        .depositToTimedVault(new anchor.BN(price))
         .accounts({
           user: user.publicKey,
           token: this.USDC_TOKEN_ADDRESS,
