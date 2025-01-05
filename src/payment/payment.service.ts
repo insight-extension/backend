@@ -582,13 +582,53 @@ export class PaymentService implements OnModuleInit {
       // Refund user's balance
       await this.refundTimedBalanceThroughProgram(userPublicKey);
       Logger.log(
-        `User ${userPublicKey.toString()} balance (${userTimedVaultBalance}) refunded`,
+        `User ${userPublicKey.toString()} balance [${userTimedVaultBalance}] refunded`,
       );
     } catch (error) {
       Logger.error(`Error refunding user's balance: ${error}`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error refunding user balance';
+      this.emitErrorToWsClient(client, message, error);
+      client.disconnect();
+    }
+  }
+
+  private async refundUserSubscriptionBalance(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+
+      const [userInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
+
+      // PDA address where user's balance is stored
+      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+
+      const userVaultBalance: number =
+        await this.getUserVaultBalance(userVaultAddress);
+
+      // Check if user balance is positive
+      if (userVaultBalance === 0) {
+        throw new Error('No balance to refund');
+      }
+
+      // Refund user's subscription balance
+      await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
+      Logger.log(
+        `User ${userPublicKey.toString()} subscription balance [${userVaultBalance}] refunded`,
+      );
+    } catch (error) {
+      Logger.error(`Error refunding user's subscription balance: ${error}`);
+
+      // Emit error to client and disconnect him
+      const message: string = 'Error refunding user subscription balance';
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     }
@@ -629,7 +669,7 @@ export class PaymentService implements OnModuleInit {
         .signers([this.master])
         .rpc();
       Logger.log(
-        `Subscription bought by ${userPublicKey.toString()}: ${transaction}`,
+        `Subscription bought by [${userPublicKey.toString()}], transaction: [${transaction}]`,
       );
     } catch (error) {
       Logger.error(error);
@@ -649,6 +689,27 @@ export class PaymentService implements OnModuleInit {
         .rpc();
       Logger.log(
         `Refund done for user ${userPublicKey.toString()}: ${transaction}`,
+      );
+    } catch (error) {
+      Logger.error(error);
+    }
+  }
+
+  private async refundSubscriptionBalanceThroughProgram(
+    userPublicKey: PublicKey,
+  ) {
+    try {
+      const transaction = await this.program.methods
+        .refundSubscriptionBalance()
+        .accounts({
+          user: userPublicKey,
+          token: this.USDC_TOKEN_ADDRESS,
+          tokenProgram: this.TOKEN_PROGRAM,
+        })
+        .signers([this.master])
+        .rpc();
+      Logger.log(
+        `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
       );
     } catch (error) {
       Logger.error(error);
