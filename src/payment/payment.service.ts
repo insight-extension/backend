@@ -40,8 +40,10 @@ export class PaymentService implements OnModuleInit {
   private readonly USDC_TOKEN_ADDRESS = new PublicKey(
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
+  // Prices in raw format
   private readonly USDC_PRICE_PER_MINUTE = 0.03 * 1_000_000; // 0.03 USDC in raw format
   private readonly USDC_PRICE_PER_HOUR = 1.2 * 1_000_000; // 1.20 USDC in raw format
+  private readonly USDC_SUBSCRIPTION_PRICE = 20 * 1_000_000; // 20 USDC in raw format
 
   constructor(
     private readonly jwtService: JwtService,
@@ -65,7 +67,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    //this.depositToTimedVault(this.USDC_PRICE_PER_HOUR);
+    this.depositToTimedVault(this.USDC_SUBSCRIPTION_PRICE);
   }
 
   onModuleInit() {
@@ -83,7 +85,7 @@ export class PaymentService implements OnModuleInit {
       );
 
       // PDA address where user's balance is stored
-      const userTimedVaultAddress = await getAssociatedTokenAddress(
+      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
         true,
@@ -96,6 +98,8 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user has sufficient balance
       if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
+        console.log('userTimedVaultBalance: ', userTimedVaultBalance);
+        console.log('price: ', this.USDC_PRICE_PER_MINUTE);
         throw new Error('Insufficient balance');
       }
 
@@ -494,6 +498,59 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
+  private async startPayingWithSubscription(client: Socket): Promise<void> {
+    try {
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+
+      const [userInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
+
+      // PDA address where user's balance is stored
+      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+
+      const userInfo =
+        await this.program.account.userSubscriptionInfo.fetch(userInfoAddress);
+
+      const userVaultBalance: number =
+        await this.getUserVaultBalance(userVaultAddress);
+
+      // Define timestamps for the current time and the expiration time
+      const currentTimestamp: number = new Date().getTime() / 1000; // Convert to seconds
+      const subscriptionExpirationTimestamp: number =
+        userInfo.expiration.toNumber();
+
+      const isSubscriptionExpired: boolean =
+        currentTimestamp > subscriptionExpirationTimestamp;
+
+      // Check if user's subscription is expired or not initialized
+      if (isSubscriptionExpired || !subscriptionExpirationTimestamp) {
+        // Check if user has sufficient balance to pay for the subscription
+        if (userVaultBalance < this.USDC_SUBSCRIPTION_PRICE) {
+          throw new Error('Insufficient balance');
+        }
+
+        await this.buySubscriptionThroughProgram(
+          userPublicKey,
+          this.USDC_SUBSCRIPTION_PRICE,
+        );
+      }
+    } catch (error) {
+      Logger.error(`Error starting subscription: ${error}`);
+
+      // Emit error to client and disconnect him
+      const message: string = 'Error starting subscription';
+      this.emitErrorToWsClient(client, message, error);
+      client.disconnect();
+    }
+  }
+
   private async payPerTimeThroughProgram(
     userPublicKey: PublicKey,
     totalPriceInRawUSDC: number,
@@ -514,6 +571,28 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
+  private async buySubscriptionThroughProgram(
+    userPublicKey: PublicKey,
+    priceInRawUSDC: number,
+  ): Promise<void> {
+    try {
+      const transaction = await this.program.methods
+        .subscribeWithVault(new anchor.BN(priceInRawUSDC))
+        .accounts({
+          user: userPublicKey,
+          token: this.USDC_TOKEN_ADDRESS,
+          tokenProgram: this.TOKEN_PROGRAM,
+        })
+        .signers([this.master])
+        .rpc();
+      Logger.log(
+        `Subscription bought by ${userPublicKey.toString()}: ${transaction}`,
+      );
+    } catch (error) {
+      Logger.error(error);
+    }
+  }
+
   private async getUserVaultBalance(
     userTimedVaultAddress: PublicKey,
   ): Promise<number> {
@@ -521,6 +600,7 @@ export class PaymentService implements OnModuleInit {
       userTimedVaultAddress,
     );
     const balance: number = parseInt(balanceInfo.value.amount);
+    console.log('balance: ', balance);
     return balance;
   }
 
@@ -676,12 +756,13 @@ export class PaymentService implements OnModuleInit {
           await this.startPayingPerMinutes(client);
           break;
         case SubscriptionType.PER_MONTH:
+          await this.startPayingWithSubscription(client);
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.startFreeHoursUsing(client);
           break;
         case SubscriptionType.PER_HOURS:
-          this.startPayingPerHours(client);
+          await this.startPayingPerHours(client);
           break;
         default:
           throw new Error('Invalid subscription type');
@@ -710,10 +791,10 @@ export class PaymentService implements OnModuleInit {
         case SubscriptionType.PER_MONTH:
           break;
         case SubscriptionType.FREE_TRIAL:
-          this.stopFreeHoursUsing(client);
+          await this.stopFreeHoursUsing(client);
           break;
         case SubscriptionType.PER_HOURS:
-          this.stopPayingPerHours(client);
+          await this.stopPayingPerHours(client);
           break;
         default:
           throw new Error('Invalid subscription type');
