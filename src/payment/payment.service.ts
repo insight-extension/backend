@@ -28,6 +28,7 @@ import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgram } from './interfaces/deposit_program';
+import { I18nService } from 'nestjs-i18n';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -48,6 +49,7 @@ export class PaymentService implements OnModuleInit {
   constructor(
     private readonly jwtService: JwtService,
     private readonly accountService: AccountService,
+    private readonly i18n: I18nService,
     // schedulerRegistry<key: string(publicKey), value: Timeout>
     private readonly schedulerRegistry: SchedulerRegistry,
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
@@ -78,7 +80,7 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerMinutes(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      Logger.log(`User ${userPublicKey.toString()} started paying per usage`);
+      Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
 
       const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
@@ -107,7 +109,7 @@ export class PaymentService implements OnModuleInit {
         true,
         userPublicKey.toString(),
       );
-      Logger.log(`User's ${userPublicKey.toString()} balance is frozen`);
+      Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
 
       // Define translation usage start time
       const usageStartTime: Date = new Date();
@@ -115,7 +117,7 @@ export class PaymentService implements OnModuleInit {
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
       Logger.log(
-        `Cache set for user ${userPublicKey.toString()} with start time: ${usageStartTime}`,
+        `Cache set for user [${userPublicKey.toString()}] with start time: [${usageStartTime}]`,
       );
 
       // Determine the expiration time of the user's balance
@@ -133,11 +135,11 @@ export class PaymentService implements OnModuleInit {
         userTimedVaultBalance,
       );
       Logger.log(
-        `Usage time limit set for user ${userPublicKey.toString()}: ${usageTimeLimit}`,
+        `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
       );
       // Disconnect client if error occurs
     } catch (error) {
-      Logger.error(`Error starting pay per usage: ${error}`);
+      Logger.error(`Error starting pay per usage: [${error}]`);
 
       // TODO: Rewrite with i18n support
       // Emit error to client
@@ -148,7 +150,7 @@ export class PaymentService implements OnModuleInit {
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
+      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
     }
   }
 
@@ -182,12 +184,12 @@ export class PaymentService implements OnModuleInit {
 
       const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
       Logger.log(
-        `User's ${userPublicKey.toString()} total price: ${totalPrice}`,
+        `User's [${userPublicKey.toString()}] total price: [${totalPrice}]`,
       );
 
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's ${userPublicKey.toString()} state reset`);
+      Logger.log(`User's [${userPublicKey.toString()}] state reset`);
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
@@ -198,7 +200,7 @@ export class PaymentService implements OnModuleInit {
       const message: string = 'Error stopping pay per usage';
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-      Logger.error(`Error stopping pay per time: ${error}`);
+      Logger.error(`Error stopping pay per time: [${error}]`);
     }
   }
 
@@ -221,7 +223,7 @@ export class PaymentService implements OnModuleInit {
         );
         freeHoursStartDate = currentUsageStartTime;
         Logger.log(
-          `User ${userPublicKey.toString()} free hours start date set`,
+          `User [${userPublicKey.toString()}] free hours start date set`,
         );
       }
 
@@ -250,14 +252,14 @@ export class PaymentService implements OnModuleInit {
 
       this.cacheManager.set(userPublicKey.toString(), currentUsageStartTime);
       Logger.log(
-        `User ${userPublicKey.toString()} set cache with start time: ${currentUsageStartTime}`,
+        `User [${userPublicKey.toString()}] set cache with start time: [${currentUsageStartTime}]`,
       );
 
       Logger.log(
-        `User ${userPublicKey.toString()} started using free hours at ${currentUsageStartTime}`,
+        `User [${userPublicKey.toString()}] started using free hours at [${currentUsageStartTime}]`,
       );
     } catch (error) {
-      Logger.error(`Error starting free hours usage: ${error}`);
+      Logger.error(`Error starting free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error starting free hours usage';
@@ -270,7 +272,7 @@ export class PaymentService implements OnModuleInit {
         this.cacheManager.del(userPublicKey.toString());
         this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
       } catch (error) {
-        Logger.error(`Error deleting cache and timeout: ${error}`);
+        Logger.error(`Error deleting cache and timeout: [${error}]`);
       }
     }
   }
@@ -304,20 +306,20 @@ export class PaymentService implements OnModuleInit {
         userPublicKey.toString(),
       );
       Logger.log(
-        `User's ${userPublicKey.toString()} free hours decreased from ${userFreeHoursLeft} to ${remainingFreeHours}`,
+        `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHours}]`,
       );
 
       this.cacheManager.del(userPublicKey.toString());
       Logger.log(
-        `Cache deleted for user ${userPublicKey.toString()} after stopping free hours usage`,
+        `Cache deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
       );
 
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
       Logger.log(
-        `Timeout deleted for user ${userPublicKey.toString()} after stopping free hours usage`,
+        `Timeout deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
       );
     } catch (error) {
-      Logger.error(`Error stopping free hours usage: ${error}`);
+      Logger.error(`Error stopping free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error stopping free hours usage';
@@ -363,14 +365,14 @@ export class PaymentService implements OnModuleInit {
         true,
         userPublicKey.toString(),
       );
-      Logger.log(`User's ${userPublicKey.toString()} balance is frozen`);
+      Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
 
       // Define translation usage start time
       const usageStartTime: Date = new Date();
 
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
-      Logger.log(`Cache set for user ${userPublicKey.toString()}`);
+      Logger.log(`Cache set for user [${userPublicKey.toString()}]`);
 
       // Determine the expiration time of the user's balance
       const availableTimeFromBalance: number = Math.floor(
@@ -405,12 +407,12 @@ export class PaymentService implements OnModuleInit {
         hasRemainingHours,
       );
       Logger.log(
-        `Usage time limit set for user ${userPublicKey.toString()}: ${usageTimeLimit}`,
+        `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
       );
 
-      Logger.log(`User ${userPublicKey.toString()} started paying per hours`);
+      Logger.log(`User [${userPublicKey.toString()}] started paying per hours`);
     } catch (error) {
-      Logger.error(`Error starting pay per hour: ${error}`);
+      Logger.error(`Error starting pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error starting paying per hours';
@@ -420,7 +422,7 @@ export class PaymentService implements OnModuleInit {
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
+      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
     }
   }
 
@@ -460,7 +462,7 @@ export class PaymentService implements OnModuleInit {
         );
 
         Logger.log(
-          `User's ${userPublicKey.toString()} per hours left: ${newPerHoursLeft}`,
+          `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeft}`,
         );
 
         // Calculate the total price for the used hours
@@ -470,7 +472,7 @@ export class PaymentService implements OnModuleInit {
         // Pay for the used hours
         await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
         Logger.log(
-          `User ${userPublicKey.toString()} paid ${totalPriceInRawUSDC} USDC for ${totalHoursToPay} used hours`,
+          `User [${userPublicKey.toString()}] paid [${totalPriceInRawUSDC}] USDC for [${totalHoursToPay}] used hours`,
         );
       } else {
         // Set per hours left after the usage
@@ -479,15 +481,15 @@ export class PaymentService implements OnModuleInit {
           userPublicKey.toString(),
         );
         Logger.log(
-          `User's ${userPublicKey.toString()} per hours left: ${totalUsageInHours}`,
+          `User's [${userPublicKey.toString()}] per hours left: [${totalUsageInHours}]`,
         );
       }
 
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's ${userPublicKey.toString()} resources cleared`);
+      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
     } catch (error) {
-      Logger.error(`Error stopping pay per hour: ${error}`);
+      Logger.error(`Error stopping pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error stopping paying per hours';
@@ -502,6 +504,8 @@ export class PaymentService implements OnModuleInit {
 
   private async startPayingWithSubscription(client: Socket): Promise<void> {
     try {
+      // TODO: remove
+      // client.emit('error', this.i18n.translate('payment.test'));
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
 
       const [userInfoAddress] = PublicKey.findProgramAddressSync(
@@ -544,7 +548,7 @@ export class PaymentService implements OnModuleInit {
         );
       }
     } catch (error) {
-      Logger.error(`Error starting subscription: ${error}`);
+      Logger.error(`Error starting subscription: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error starting subscription';
@@ -582,10 +586,10 @@ export class PaymentService implements OnModuleInit {
       // Refund user's balance
       await this.refundTimedBalanceThroughProgram(userPublicKey);
       Logger.log(
-        `User ${userPublicKey.toString()} balance [${userTimedVaultBalance}] refunded`,
+        `User [${userPublicKey.toString()}] balance [${userTimedVaultBalance}] refunded`,
       );
     } catch (error) {
-      Logger.error(`Error refunding user's balance: ${error}`);
+      Logger.error(`Error refunding user's balance: [${error}]`);
 
       // Emit error to client and disconnect him
       const message: string = 'Error refunding user balance';
@@ -622,7 +626,7 @@ export class PaymentService implements OnModuleInit {
       // Refund user's subscription balance
       await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
       Logger.log(
-        `User ${userPublicKey.toString()} subscription balance [${userVaultBalance}] refunded`,
+        `User [${userPublicKey.toString()}] subscription balance [${userVaultBalance}] refunded`,
       );
     } catch (error) {
       Logger.error(`Error refunding user's subscription balance: ${error}`);
@@ -648,7 +652,7 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(`Payment done: ${transaction}`);
+      Logger.log(`Payment done: [${transaction}]`);
     } catch (error) {
       Logger.error(error);
     }
@@ -688,7 +692,7 @@ export class PaymentService implements OnModuleInit {
         .signers([this.master])
         .rpc();
       Logger.log(
-        `Refund done for user ${userPublicKey.toString()}: ${transaction}`,
+        `Refund done for user [${userPublicKey.toString()}]: [${transaction}]`,
       );
     } catch (error) {
       Logger.error(error);
@@ -775,7 +779,7 @@ export class PaymentService implements OnModuleInit {
       // Pay for the used time
       await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
       Logger.log(
-        `User ${userPublicKey.toString()} paid for the used time: ${totalPriceInRawUSDC} USDC`,
+        `User [${userPublicKey.toString()}] paid for the used time: [${totalPriceInRawUSDC}] USDC`,
       );
 
       // Reset hours left for paying per hours
@@ -796,7 +800,7 @@ export class PaymentService implements OnModuleInit {
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.log(
-        `User's ${userPublicKey.toString()} balance expired. Timeout executed`,
+        `User's [${userPublicKey.toString()}] balance expired. Timeout executed`,
       );
     };
 
@@ -804,7 +808,7 @@ export class PaymentService implements OnModuleInit {
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
-      `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
+      `Timeout added to scheduler for user: [${userPublicKey.toString()}] executes in [${millisecondsToExecute}ms]`,
     );
   }
 
@@ -819,7 +823,7 @@ export class PaymentService implements OnModuleInit {
 
       this.cacheManager.del(userPublicKey.toString());
       Logger.log(
-        `User's ${userPublicKey.toString()} free hours expired. Timeout executed`,
+        `User's [${userPublicKey.toString()}] free hours expired. Timeout executed`,
       );
 
       // Emit error to client and disconnect him
@@ -836,7 +840,7 @@ export class PaymentService implements OnModuleInit {
 
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
-      `Timeout added to scheduler for user: ${userPublicKey.toString()} executes in ${millisecondsToExecute}ms`,
+      `Timeout added to scheduler for user: [${userPublicKey.toString()}] executes in [${millisecondsToExecute}ms]`,
     );
   }
 
@@ -846,14 +850,14 @@ export class PaymentService implements OnModuleInit {
     try {
       this.cacheManager.del(userPublicKey.toString());
     } catch (error) {
-      Logger.error(`Error deleting cache: ${error}`);
+      Logger.error(`Error deleting cache: [${error}]`);
     }
 
     // Remove user's timeout
     try {
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
     } catch (error) {
-      Logger.error(`Error deleting timeout: ${error}`);
+      Logger.error(`Error deleting timeout: [${error}]`);
     }
 
     // Unfreeze user's balance
@@ -863,7 +867,7 @@ export class PaymentService implements OnModuleInit {
         userPublicKey.toString(),
       );
     } catch (error) {
-      Logger.error(`Error setting balance freezing status: ${error}`);
+      Logger.error(`Error setting balance freezing status: [${error}]`);
     }
   }
 
@@ -896,7 +900,7 @@ export class PaymentService implements OnModuleInit {
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
-      Logger.error(`Error starting payment method: ${error}`);
+      Logger.error(`Error starting payment method: [${error}]`);
     }
   }
 
@@ -928,7 +932,7 @@ export class PaymentService implements OnModuleInit {
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
-      Logger.error(`Error starting payment method: ${error}`);
+      Logger.error(`Error starting payment method: [${error}]`);
     }
   }
 
@@ -957,11 +961,11 @@ export class PaymentService implements OnModuleInit {
         usageStartTime,
         userPublicKey.toString(),
       );
-      Logger.log(`User ${userPublicKey.toString()} free hours renewed`);
+      Logger.log(`User [${userPublicKey.toString()}] free hours renewed`);
       return true;
     }
     // Free hours not renewed
-    Logger.warn(`User ${userPublicKey.toString()} free hours not renewed`);
+    Logger.warn(`User [${userPublicKey.toString()}] free hours not renewed`);
     return false;
   }
 

@@ -46,6 +46,7 @@ export class WsJwtGuard {
       }
       return true;
     } catch (error) {
+      // Emit error to client and disconnect
       const errorToEmit = new HttpException(
         {
           message: 'Error while authenticating user',
@@ -54,9 +55,11 @@ export class WsJwtGuard {
         },
         HttpStatus.FORBIDDEN,
       );
-      client.emit('error', errorToEmit);
+      client.emit('error', errorToEmit.getResponse());
       client.disconnect();
-      Logger.warn(`JWT verification failed: ${error.message}`);
+      Logger.warn(
+        `Client's [${client.id}] JWT verification failed: ${error.message}`,
+      );
       return false;
     }
   }

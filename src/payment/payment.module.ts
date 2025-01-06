@@ -4,6 +4,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AccountModule } from 'src/account/account.module';
+import { WebSocketLanguageResolver } from './resolvers/websocket.resolver';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { AccountModule } from 'src/account/account.module';
     JwtModule,
     AccountModule,
   ],
-  providers: [PaymentService, JwtService],
-  exports: [PaymentService],
+  providers: [PaymentService, JwtService, WebSocketLanguageResolver],
+  exports: [PaymentService, WebSocketLanguageResolver],
 })
 export class PaymentModule {}
