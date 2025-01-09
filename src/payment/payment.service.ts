@@ -69,12 +69,170 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    // this.depositToTimedVault(this.USDC_SUBSCRIPTION_PRICE);
-    // this.depositToSubscriptionVault(this.USDC_SUBSCRIPTION_PRICE);
+    // this.depositToTimedVault(5);
+    // this.depositToSubscriptionVault(5);
   }
 
   onModuleInit() {
     Logger.log('Payment Service initialized');
+  }
+
+  async refundUserTimedBalance(publicKey: string): Promise<string> {
+    try {
+      const userPublicKey = new PublicKey(publicKey);
+
+      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
+
+      // PDA address where user's balance is stored
+      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userTimedInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+
+      const userTimedVaultBalance: number = await this.getUserVaultBalance(
+        userTimedVaultAddress,
+      );
+
+      // Check if user has balance to refund
+      if (userTimedVaultBalance === 0) {
+        throw new Error('No balance to refund');
+      }
+
+      // Refund user's balance
+      const transaction =
+        await this.refundTimedBalanceThroughProgram(userPublicKey);
+      Logger.log(
+        `User [${userPublicKey.toString()}] balance [${userTimedVaultBalance}] refunded`,
+      );
+      return transaction;
+    } catch (error) {
+      Logger.error(`Error refunding user's balance: [${error}]`);
+
+      // Throw exception to client
+      throw new HttpException(
+        {
+          message: 'Error refunding timed balance',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  async refundUserSubscriptionBalance(publicKey: string): Promise<void> {
+    try {
+      const userPublicKey = new PublicKey(publicKey);
+
+      const [userInfoAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
+        this.program.programId,
+      );
+
+      // PDA address where user's balance is stored
+      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
+        this.USDC_TOKEN_ADDRESS,
+        userInfoAddress,
+        true,
+        this.TOKEN_PROGRAM,
+      );
+
+      const userVaultBalance: number =
+        await this.getUserVaultBalance(userVaultAddress);
+
+      // Check if user balance is positive
+      if (userVaultBalance === 0) {
+        throw new Error('No balance to refund');
+      }
+
+      // Refund user's subscription balance
+      await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
+      Logger.log(
+        `User [${userPublicKey.toString()}] subscription balance [${userVaultBalance}] refunded`,
+      );
+    } catch (error) {
+      Logger.error(`Error refunding user's subscription balance: ${error}`);
+
+      // Throw exception to client
+      throw new HttpException(
+        {
+          message: 'Error refunding subscription balance',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
+    try {
+      // Get required payment method from client handshake's header
+      const subscriptionType = client.request.headers.subscription;
+
+      // Start payment method based on subscription type
+      switch (subscriptionType) {
+        case SubscriptionType.PER_USAGE:
+          await this.startPayingPerMinutes(client);
+          break;
+        case SubscriptionType.PER_MONTH:
+          await this.startPayingWithSubscription(client);
+          break;
+        case SubscriptionType.FREE_TRIAL:
+          await this.startFreeHoursUsing(client);
+          break;
+        case SubscriptionType.PER_HOURS:
+          await this.startPayingPerHours(client);
+          break;
+        default:
+          throw new Error('Invalid subscription type');
+      }
+    } catch (error) {
+      // Emit error to client and disconnect him
+      const message: string =
+        'Error starting translation with required payment method';
+      this.emitErrorToWsClient(client, message, error);
+      client.disconnect();
+
+      Logger.error(`Error starting payment method: [${error}]`);
+    }
+  }
+
+  async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
+    try {
+      // Get payment method from client handshake's header
+      const subscriptionType = client.request.headers.subscription;
+
+      // Stop payment method based on subscription type
+      switch (subscriptionType) {
+        case SubscriptionType.PER_USAGE:
+          await this.stopPayingPerMinutes(client);
+          break;
+        case SubscriptionType.PER_MONTH:
+          break;
+        case SubscriptionType.FREE_TRIAL:
+          await this.stopFreeHoursUsing(client);
+          break;
+        case SubscriptionType.PER_HOURS:
+          await this.stopPayingPerHours(client);
+          break;
+        default:
+          throw new Error('Invalid subscription type');
+      }
+    } catch (error) {
+      // Emit error to client and disconnect him
+      const message: string =
+        'Error stopping translation with required payment method';
+      this.emitErrorToWsClient(client, message, error);
+      client.disconnect();
+
+      Logger.error(`Error starting payment method: [${error}]`);
+    }
   }
 
   private async startPayingPerMinutes(client: Socket): Promise<void> {
@@ -504,8 +662,6 @@ export class PaymentService implements OnModuleInit {
 
   private async startPayingWithSubscription(client: Socket): Promise<void> {
     try {
-      // TODO: remove
-      // client.emit('error', this.i18n.translate('payment.test'));
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
 
       const [userInfoAddress] = PublicKey.findProgramAddressSync(
@@ -557,87 +713,6 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async refundUserTimedBalance(client: Socket): Promise<void> {
-    try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-
-      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-        this.program.programId,
-      );
-
-      // PDA address where user's balance is stored
-      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
-        userTimedInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
-
-      const userTimedVaultBalance: number = await this.getUserVaultBalance(
-        userTimedVaultAddress,
-      );
-
-      // Check if user has balance to refund
-      if (userTimedVaultBalance === 0) {
-        throw new Error('No balance to refund');
-      }
-
-      // Refund user's balance
-      await this.refundTimedBalanceThroughProgram(userPublicKey);
-      Logger.log(
-        `User [${userPublicKey.toString()}] balance [${userTimedVaultBalance}] refunded`,
-      );
-    } catch (error) {
-      Logger.error(`Error refunding user's balance: [${error}]`);
-
-      // Emit error to client and disconnect him
-      const message: string = 'Error refunding user balance';
-      this.emitErrorToWsClient(client, message, error);
-      client.disconnect();
-    }
-  }
-
-  private async refundUserSubscriptionBalance(client: Socket): Promise<void> {
-    try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-
-      const [userInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
-        this.program.programId,
-      );
-
-      // PDA address where user's balance is stored
-      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
-        userInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
-
-      const userVaultBalance: number =
-        await this.getUserVaultBalance(userVaultAddress);
-
-      // Check if user balance is positive
-      if (userVaultBalance === 0) {
-        throw new Error('No balance to refund');
-      }
-
-      // Refund user's subscription balance
-      await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
-      Logger.log(
-        `User [${userPublicKey.toString()}] subscription balance [${userVaultBalance}] refunded`,
-      );
-    } catch (error) {
-      Logger.error(`Error refunding user's subscription balance: ${error}`);
-
-      // Emit error to client and disconnect him
-      const message: string = 'Error refunding user subscription balance';
-      this.emitErrorToWsClient(client, message, error);
-      client.disconnect();
-    }
-  }
-
   private async payPerTimeThroughProgram(
     userPublicKey: PublicKey,
     totalPriceInRawUSDC: number,
@@ -680,9 +755,11 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async refundTimedBalanceThroughProgram(userPublicKey: PublicKey) {
+  private async refundTimedBalanceThroughProgram(
+    userPublicKey: PublicKey,
+  ): Promise<string> {
     try {
-      const transaction = await this.program.methods
+      const transaction: string = await this.program.methods
         .refundTimedBalance()
         .accounts({
           user: userPublicKey,
@@ -692,8 +769,9 @@ export class PaymentService implements OnModuleInit {
         .signers([this.master])
         .rpc();
       Logger.log(
-        `Refund done for user [${userPublicKey.toString()}]: [${transaction}]`,
+        `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
       );
+      return transaction;
     } catch (error) {
       Logger.error(error);
     }
@@ -868,71 +946,6 @@ export class PaymentService implements OnModuleInit {
       );
     } catch (error) {
       Logger.error(`Error setting balance freezing status: [${error}]`);
-    }
-  }
-
-  async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
-    try {
-      // Get required payment method from client handshake's header
-      const subscriptionType = client.request.headers.subscription;
-
-      // Start payment method based on subscription type
-      switch (subscriptionType) {
-        case SubscriptionType.PER_USAGE:
-          await this.startPayingPerMinutes(client);
-          break;
-        case SubscriptionType.PER_MONTH:
-          await this.startPayingWithSubscription(client);
-          break;
-        case SubscriptionType.FREE_TRIAL:
-          await this.startFreeHoursUsing(client);
-          break;
-        case SubscriptionType.PER_HOURS:
-          await this.startPayingPerHours(client);
-          break;
-        default:
-          throw new Error('Invalid subscription type');
-      }
-    } catch (error) {
-      // Emit error to client and disconnect him
-      const message: string =
-        'Error starting translation with required payment method';
-      this.emitErrorToWsClient(client, message, error);
-      client.disconnect();
-
-      Logger.error(`Error starting payment method: [${error}]`);
-    }
-  }
-
-  async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
-    try {
-      // Get payment method from client handshake's header
-      const subscriptionType = client.request.headers.subscription;
-
-      // Stop payment method based on subscription type
-      switch (subscriptionType) {
-        case SubscriptionType.PER_USAGE:
-          await this.stopPayingPerMinutes(client);
-          break;
-        case SubscriptionType.PER_MONTH:
-          break;
-        case SubscriptionType.FREE_TRIAL:
-          await this.stopFreeHoursUsing(client);
-          break;
-        case SubscriptionType.PER_HOURS:
-          await this.stopPayingPerHours(client);
-          break;
-        default:
-          throw new Error('Invalid subscription type');
-      }
-    } catch (error) {
-      // Emit error to client and disconnect him
-      const message: string =
-        'Error stopping translation with required payment method';
-      this.emitErrorToWsClient(client, message, error);
-      client.disconnect();
-
-      Logger.error(`Error starting payment method: [${error}]`);
     }
   }
 

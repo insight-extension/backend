@@ -6,8 +6,6 @@ import * as fs from 'fs'; // Import the 'fs' module
 import path from 'path';
 import 'dotenv/config';
 
-// import helmet from 'helmet';
-
 async function bootstrap() {
   // SSL setup
   // const httpsOptions = {
