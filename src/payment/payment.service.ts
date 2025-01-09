@@ -69,7 +69,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    // this.depositToTimedVault(5);
+    this.depositToTimedVault(5);
     // this.depositToSubscriptionVault(5);
   }
 
@@ -79,14 +79,23 @@ export class PaymentService implements OnModuleInit {
 
   async refundUserTimedBalance(publicKey: string): Promise<string> {
     try {
-      const userPublicKey = new PublicKey(publicKey);
+      // Check if balance frozen
+      const isBalanceFrozen: boolean =
+        await this.accountService.getBalanceFreezingStatus(publicKey);
 
+      if (isBalanceFrozen) {
+        throw new Error('Balance is frozen');
+      }
+
+      // User's PDA address
+      const userPublicKey = new PublicKey(publicKey);
+      // TODO: Move constants to separated enum
       const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
 
-      // PDA address where user's balance is stored
+      // ATA address where user's balance is stored
       const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
@@ -127,14 +136,22 @@ export class PaymentService implements OnModuleInit {
 
   async refundUserSubscriptionBalance(publicKey: string): Promise<void> {
     try {
-      const userPublicKey = new PublicKey(publicKey);
+      // Check if balance frozen
+      const isBalanceFrozen: boolean =
+        await this.accountService.getBalanceFreezingStatus(publicKey);
 
+      if (isBalanceFrozen) {
+        throw new Error('Balance is frozen');
+      }
+
+      // User's PDA address
+      const userPublicKey = new PublicKey(publicKey);
       const [userInfoAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
         this.program.programId,
       );
 
-      // PDA address where user's balance is stored
+      // ATA address where user's balance is stored
       const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userInfoAddress,
@@ -245,7 +262,7 @@ export class PaymentService implements OnModuleInit {
         this.program.programId,
       );
 
-      // PDA address where user's balance is stored
+      // ATA address where user's balance is stored
       const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
@@ -494,7 +511,7 @@ export class PaymentService implements OnModuleInit {
         this.program.programId,
       );
 
-      // PDA address where user's balance is stored
+      // ATA address where user's balance is stored
       const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
@@ -669,7 +686,7 @@ export class PaymentService implements OnModuleInit {
         this.program.programId,
       );
 
-      // PDA address where user's balance is stored
+      // ATA address where user's balance is stored
       const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userInfoAddress,
