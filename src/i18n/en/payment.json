@@ -1,3 +1,28 @@
 {
-  "test": "en"
+  "test": "en",
+  "errors": {
+    "insufficientBalance": "Insufficient balance",
+    "balanceIsFrozen":"Balance is frozen",
+    "noBalanceToRefund": "No balance to refund",
+    "invalidSubscriptionType": "Invalid subscription type",
+    "noFreeHoursAvailable": "Free hours are not available",
+    "fundsRanOut": "Funds ran out",
+    "freeHoursExpired": "Free hours expired"
+  },
+  "messages": {
+    "timedBalanceRefundFailed": "Timed balance refunding failed",
+    "subscriptionBalanceRefundFailed": "Subscription refunding failed",
+    "startTranslationFailed": "Failed to start translation with the selected payment method",
+    "stopTranslationFailed": "Failed to end translation with the selected payment method",
+    "startPayPerUsageFailed": "Failed to start pay per usage",
+    "stopPayPerUsageFailed": "Failed to end pay per usage",
+    "startFreeHoursFailed": "Failed to start free hours usage",
+    "stopFreeHoursFailed": "Failed to end free hours usage",
+    "startPayPerHoursFailed": "Failed to start pay per hours usage",
+    "stopPayPerHoursFailed": "Failed to end pay per hours usage",
+    "startSubscriptionFailed": "Failed to start subscription",
+    "errorDuringPayPerUsage": "An error occurred while using pay per usage",
+    "errorDuringPayPerHours": "An error occurred while using pay per hours",
+    "errorDuringFreeHours": "An error occurred while using free hours"
+  }
 }

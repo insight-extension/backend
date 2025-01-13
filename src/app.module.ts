@@ -8,7 +8,6 @@ import { AuthModule } from 'src/auth/auth.module';
 import { PaymentModule } from './payment/payment.module';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import * as path from 'path';
-import { WebSocketLanguageResolver } from './payment/resolvers/websocket.resolver';
 
 @Module({
   imports: [
@@ -27,7 +26,6 @@ import { WebSocketLanguageResolver } from './payment/resolvers/websocket.resolve
         watch: true,
       },
       resolvers: [
-        new WebSocketLanguageResolver(), // WebSocket language resolver
         AcceptLanguageResolver, // Accept-Language header resolver
       ],
     }),
@@ -44,7 +42,6 @@ import { WebSocketLanguageResolver } from './payment/resolvers/websocket.resolve
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
-    WebSocketLanguageResolver,
   ],
 })
 export class AppModule {}

@@ -52,6 +52,7 @@ export class PaymentService implements OnModuleInit {
     private readonly i18n: I18nService,
     // schedulerRegistry<key: string(publicKey), value: Timeout>
     private readonly schedulerRegistry: SchedulerRegistry,
+    // TODO: resolve cache singleton problems
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {
@@ -69,7 +70,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    this.depositToTimedVault(5);
+    //this.depositToTimedVault(1_000_000);
     // this.depositToSubscriptionVault(5);
   }
 
@@ -84,15 +85,15 @@ export class PaymentService implements OnModuleInit {
         await this.accountService.getBalanceFreezingStatus(publicKey);
 
       if (isBalanceFrozen) {
-        throw new Error('Balance is frozen');
+        throw new Error(this.i18n.t('payment.errors.balanceIsFrozen'));
       }
 
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
-      // TODO: Move constants to separated enum
-      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-        this.program.programId,
+
+      const userTimedInfoAddress = this.getUserInfoAddress(
+        InfoAccountType.TIMED,
+        userPublicKey,
       );
 
       // ATA address where user's balance is stored
@@ -109,7 +110,7 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user has balance to refund
       if (userTimedVaultBalance === 0) {
-        throw new Error('No balance to refund');
+        throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
       }
 
       // Refund user's balance
@@ -125,7 +126,7 @@ export class PaymentService implements OnModuleInit {
       // Throw exception to client
       throw new HttpException(
         {
-          message: 'Error refunding timed balance',
+          message: this.i18n.t('payment.messages.timedBalanceRefundFailed'),
           error: error.message,
           statusCode: HttpStatus.FORBIDDEN,
         },
@@ -136,14 +137,6 @@ export class PaymentService implements OnModuleInit {
 
   async refundUserSubscriptionBalance(publicKey: string): Promise<void> {
     try {
-      // Check if balance frozen
-      const isBalanceFrozen: boolean =
-        await this.accountService.getBalanceFreezingStatus(publicKey);
-
-      if (isBalanceFrozen) {
-        throw new Error('Balance is frozen');
-      }
-
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
       const [userInfoAddress] = PublicKey.findProgramAddressSync(
@@ -164,7 +157,7 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user balance is positive
       if (userVaultBalance === 0) {
-        throw new Error('No balance to refund');
+        throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
       }
 
       // Refund user's subscription balance
@@ -178,7 +171,9 @@ export class PaymentService implements OnModuleInit {
       // Throw exception to client
       throw new HttpException(
         {
-          message: 'Error refunding subscription balance',
+          message: this.i18n.t(
+            'payment.messages.subscriptionBalanceRefundFailed',
+          ),
           error: error.message,
           statusCode: HttpStatus.FORBIDDEN,
         },
@@ -207,15 +202,18 @@ export class PaymentService implements OnModuleInit {
           await this.startPayingPerHours(client);
           break;
         default:
-          throw new Error('Invalid subscription type');
+          throw new Error(
+            this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
+          );
       }
     } catch (error) {
       // Emit error to client and disconnect him
-      const message: string =
-        'Error starting translation with required payment method';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.startTranslationFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-
       Logger.error(`Error starting payment method: [${error}]`);
     }
   }
@@ -239,20 +237,26 @@ export class PaymentService implements OnModuleInit {
           await this.stopPayingPerHours(client);
           break;
         default:
-          throw new Error('Invalid subscription type');
+          throw new Error(
+            this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
+          );
       }
     } catch (error) {
       // Emit error to client and disconnect him
-      const message: string =
-        'Error stopping translation with required payment method';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.stopTranslationFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-
-      Logger.error(`Error starting payment method: [${error}]`);
+      Logger.error(
+        `Error stopping translation with required payment method: [${error}]`,
+      );
     }
   }
 
   private async startPayingPerMinutes(client: Socket): Promise<void> {
+    console.log(this.i18nWs(client, 'payment.test'));
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
@@ -276,7 +280,9 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user has sufficient balance
       if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
-        throw new Error('Insufficient balance');
+        throw new Error(
+          this.i18nWs(client, 'payment.errors.insufficientBalance'),
+        );
       }
 
       // Freeze user's balance
@@ -316,9 +322,11 @@ export class PaymentService implements OnModuleInit {
     } catch (error) {
       Logger.error(`Error starting pay per usage: [${error}]`);
 
-      // TODO: Rewrite with i18n support
       // Emit error to client
-      const message: string = 'Error starting pay per usage';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.startPayPerUsageFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
@@ -372,7 +380,10 @@ export class PaymentService implements OnModuleInit {
       }
     } catch (error) {
       // Disconnect client if error occurs
-      const message: string = 'Error stopping pay per usage';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.stopPayPerUsageFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.error(`Error stopping pay per time: [${error}]`);
@@ -414,7 +425,9 @@ export class PaymentService implements OnModuleInit {
             freeHoursStartDate,
           );
         if (!isFreeHoursAvailable) {
-          throw new Error('No free hours available');
+          throw new Error(
+            this.i18nWs(client, 'payment.errors.noFreeHoursAvailable'),
+          );
         }
       }
 
@@ -437,7 +450,10 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = 'Error starting free hours usage';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.startFreeHoursFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
@@ -497,7 +513,10 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error stopping free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = 'Error stopping free hours usage';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.stopFreeHoursFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     }
@@ -532,7 +551,9 @@ export class PaymentService implements OnModuleInit {
         perHoursLeft === 0 &&
         userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
       ) {
-        throw new Error('Insufficient balance');
+        throw new Error(
+          this.i18nWs(client, 'payment.errors.insufficientBalance'),
+        );
       }
 
       // Freeze user's balance
@@ -590,7 +611,10 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = 'Error starting paying per hours';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.startPayPerHoursFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
@@ -667,7 +691,10 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error stopping pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = 'Error stopping paying per hours';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.stopPayPerHoursFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
@@ -712,7 +739,9 @@ export class PaymentService implements OnModuleInit {
       if (isSubscriptionExpired || !subscriptionExpirationTimestamp) {
         // Check if user has sufficient balance to pay for the subscription
         if (userVaultBalance < this.USDC_SUBSCRIPTION_PRICE) {
-          throw new Error('Insufficient balance');
+          throw new Error(
+            this.i18nWs(client, 'payment.errors.insufficientBalance'),
+          );
         }
 
         await this.buySubscriptionThroughProgram(
@@ -724,7 +753,10 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting subscription: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = 'Error starting subscription';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.startSubscriptionFailed',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     }
@@ -890,8 +922,11 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Emit error to client and disconnect him
-      const message: string = 'Error while using pay per time';
-      const error: string = 'Balance expired';
+      const message: string = this.i18nWs(
+        client,
+        `payment.messages.startPayPer${hasRemainingHours ? 'Hours' : 'Usage'}`,
+      );
+      const error: string = this.i18nWs(client, 'payment.errors.fundsRanOut');
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.log(
@@ -922,8 +957,14 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Emit error to client and disconnect him
-      const message: string = 'Error while using free hours';
-      const error: string = 'Free hours expired';
+      const message: string = this.i18nWs(
+        client,
+        'payment.messages.errorDuringFreeHours',
+      );
+      const error: string = this.i18nWs(
+        client,
+        'payment.errors.freeHoursExpired',
+      );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     };
@@ -999,6 +1040,17 @@ export class PaymentService implements OnModuleInit {
     return false;
   }
 
+  private getUserInfoAddress(
+    infoAccountType: string,
+    userPublicKey: PublicKey,
+  ) {
+    const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
+      [Buffer.from(infoAccountType), userPublicKey.toBuffer()],
+      this.program.programId,
+    );
+    return userTimedInfoAddress;
+  }
+
   private emitErrorToWsClient(
     client: Socket,
     message: string,
@@ -1014,6 +1066,12 @@ export class PaymentService implements OnModuleInit {
       statusCode,
     );
     client.emit('error', errorToEmit.getResponse());
+  }
+
+  private i18nWs(client: Socket, textToTranslate: string): string {
+    // Get client's language from handshake's headers
+    const lang = client.handshake.headers['accept-language'] || 'en';
+    return this.i18n.translate(textToTranslate, { lang });
   }
 
   // TODO: Remove this test method
