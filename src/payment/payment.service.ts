@@ -29,6 +29,7 @@ import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgram } from './interfaces/deposit_program';
 import { I18nService } from 'nestjs-i18n';
+import { InfoAccountType } from './constants/info-account-type';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -70,7 +71,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    //this.depositToTimedVault(1_000_000);
+    // this.depositToTimedVault(1_000_000);
     // this.depositToSubscriptionVault(5);
   }
 
@@ -139,31 +140,32 @@ export class PaymentService implements OnModuleInit {
     try {
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
-      const [userInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
-        this.program.programId,
+      const userSubscriptionInfoAddress = this.getUserInfoAddress(
+        InfoAccountType.SUBSCRIPTION,
+        userPublicKey,
       );
 
       // ATA address where user's balance is stored
-      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
-        userInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
+      const userSubscriptionVaultAddress: PublicKey =
+        await getAssociatedTokenAddress(
+          this.USDC_TOKEN_ADDRESS,
+          userSubscriptionInfoAddress,
+          true,
+          this.TOKEN_PROGRAM,
+        );
 
-      const userVaultBalance: number =
-        await this.getUserVaultBalance(userVaultAddress);
+      const userSubscriptionVaultBalance: number =
+        await this.getUserVaultBalance(userSubscriptionVaultAddress);
 
       // Check if user balance is positive
-      if (userVaultBalance === 0) {
+      if (userSubscriptionVaultBalance === 0) {
         throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
       }
 
       // Refund user's subscription balance
       await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
       Logger.log(
-        `User [${userPublicKey.toString()}] subscription balance [${userVaultBalance}] refunded`,
+        `User [${userPublicKey.toString()}] subscription balance [${userSubscriptionVaultBalance}] refunded`,
       );
     } catch (error) {
       Logger.error(`Error refunding user's subscription balance: ${error}`);
@@ -261,9 +263,9 @@ export class PaymentService implements OnModuleInit {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
 
-      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-        this.program.programId,
+      const userTimedInfoAddress = this.getUserInfoAddress(
+        InfoAccountType.TIMED,
+        userPublicKey,
       );
 
       // ATA address where user's balance is stored
@@ -525,9 +527,9 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_timed_info'), userPublicKey.toBuffer()],
-        this.program.programId,
+      const userTimedInfoAddress = this.getUserInfoAddress(
+        InfoAccountType.TIMED,
+        userPublicKey,
       );
 
       // ATA address where user's balance is stored
@@ -708,21 +710,22 @@ export class PaymentService implements OnModuleInit {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
 
-      const [userInfoAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('user_subscription_info'), userPublicKey.toBuffer()],
-        this.program.programId,
+      const userSubscriptionInfoAddress = this.getUserInfoAddress(
+        InfoAccountType.SUBSCRIPTION,
+        userPublicKey,
       );
 
       // ATA address where user's balance is stored
       const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userInfoAddress,
+        userSubscriptionInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
 
-      const userInfo =
-        await this.program.account.userSubscriptionInfo.fetch(userInfoAddress);
+      const userInfo = await this.program.account.userSubscriptionInfo.fetch(
+        userSubscriptionInfoAddress,
+      );
 
       const userVaultBalance: number =
         await this.getUserVaultBalance(userVaultAddress);
