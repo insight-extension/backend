@@ -29,7 +29,8 @@ import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgram } from './interfaces/deposit_program';
 import { I18nService } from 'nestjs-i18n';
-import { InfoAccountType } from './constants/info-account-type';
+import { InfoAccountType } from './constants/info-account-type.enum';
+import { SubscriptionPrice } from './constants/subscription-price.enum';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -43,9 +44,14 @@ export class PaymentService implements OnModuleInit {
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
   // Prices in raw format
-  private readonly USDC_PRICE_PER_MINUTE = 0.03 * 1_000_000; // 0.03 USDC in raw format
-  private readonly USDC_PRICE_PER_HOUR = 1.2 * 1_000_000; // 1.20 USDC in raw format
-  private readonly USDC_SUBSCRIPTION_PRICE = 20 * 1_000_000; // 20 USDC in raw format
+  private readonly USDC_PRICE_PER_MINUTE =
+    SubscriptionPrice.PER_USAGE * 1_000_000;
+  private readonly USDC_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
+  private readonly USDC_SUBSCRIPTION_PRICE =
+    SubscriptionPrice.PER_MONTH * 1_000_000;
+
+  // Default free hours for new users
+  private readonly USER_DEFAULT_FREE_HOURS: number = 3;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -355,11 +361,11 @@ export class PaymentService implements OnModuleInit {
         usageEndTime.getTime() - usageStartTime.getTime();
 
       // Convert the time difference to minutes
-      const timeDifferenceInMinutes: number = timeDifference / (60 * 1000);
+      const timeDifferenceInMinutes: number = timeDifference / (60 * 1000); // 60 sec * 1000 ms
 
       // Convert seconds into minutes for comparison
       const SECONDS_TO_ROUND: number = 40;
-      const secondsInMinutes = SECONDS_TO_ROUND / 60;
+      const secondsInMinutes: number = SECONDS_TO_ROUND / 60;
 
       // Round up the total used minutes if seconds >= 40
       const totalUsedMinutes: number =
@@ -1024,10 +1030,8 @@ export class PaymentService implements OnModuleInit {
 
     // Renew free hours and set the start date to the current time if difference is greater than or equal to a week
     if (differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS) {
-      const USER_DEFAULT_FREE_HOURS: number = 3;
-
       await this.accountService.setFreeHours(
-        USER_DEFAULT_FREE_HOURS,
+        this.USER_DEFAULT_FREE_HOURS,
         userPublicKey.toString(),
       );
 
@@ -1046,12 +1050,12 @@ export class PaymentService implements OnModuleInit {
   private getUserInfoAddress(
     infoAccountType: string,
     userPublicKey: PublicKey,
-  ) {
-    const [userTimedInfoAddress] = PublicKey.findProgramAddressSync(
+  ): PublicKey {
+    const [userInfoAddress] = PublicKey.findProgramAddressSync(
       [Buffer.from(infoAccountType), userPublicKey.toBuffer()],
       this.program.programId,
     );
-    return userTimedInfoAddress;
+    return userInfoAddress;
   }
 
   private emitErrorToWsClient(

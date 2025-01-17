@@ -14,11 +14,13 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
 import 'dotenv/config';
+import { I18nService } from 'nestjs-i18n';
 @Injectable()
 export class AuthService {
   constructor(
     private accountService: AccountService,
     private jwtService: JwtService,
+    private readonly i18n: I18nService,
     // cacheManager<key: string(publicKey), value: string(nonce)>
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
@@ -27,7 +29,7 @@ export class AuthService {
   async verify(dto: VerifyDto): Promise<Verify> {
     const account = await this.validateSignature(dto);
     if (!account) {
-      throw new Error('Invalid signature');
+      throw new Error(this.i18n.t('auth.invalidSignature'));
     }
     const accountExists = await this.accountService.findOneByPublicKey(
       account.publicKey,
@@ -64,7 +66,7 @@ export class AuthService {
         payload.publicKey,
       );
       if (!account) {
-        throw new Error('Account not found');
+        throw new Error(this.i18n.t('auth.accountNotFound'));
       }
 
       const newPayload = { publicKey: payload.publicKey };
@@ -74,7 +76,7 @@ export class AuthService {
         refreshToken: this.generateRefreshToken(newPayload),
       };
     } catch {
-      throw new Error('Invalid refresh token');
+      throw new Error(this.i18n.t('auth.invalidRefreshToken'));
     }
   }
 
@@ -94,7 +96,7 @@ export class AuthService {
   private async validateSignature(dto: ValidateSignatureDto) {
     const nonce: string = await this.cacheManager.get(dto.publicKey);
     if (!nonce) {
-      throw new BadRequestException('Candidate not found');
+      throw new BadRequestException(this.i18n.t('auth.candidateNotFound'));
     }
 
     const publicKeyUint8 = bs58.decode(dto.publicKey);
@@ -108,7 +110,7 @@ export class AuthService {
     );
 
     if (!isValid) {
-      throw new BadRequestException('Invalid signature');
+      throw new BadRequestException(this.i18n.t('auth.invalidSignature'));
     }
 
     return {
