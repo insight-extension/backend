@@ -1,8 +1,8 @@
-import { IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsString } from 'class-validator';
+import { IsSolPubkey } from 'src/utils/decorators/is-sol-pubkey.decorator';
 
 export class GetNonceDto {
   @IsString()
-  @IsNotEmpty()
-  @Length(32, 44)
+  @IsSolPubkey()
   publicKey: string;
 }

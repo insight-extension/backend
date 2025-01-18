@@ -1,8 +1,9 @@
 import { IsNotEmpty, IsString } from 'class-validator';
+import { IsSolPubkey } from 'src/utils/decorators/is-sol-pubkey.decorator';
 
 export class ValidateSignatureDto {
   @IsString()
-  @IsNotEmpty()
+  @IsSolPubkey()
   publicKey: string;
 
   @IsString()
