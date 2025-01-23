@@ -1,4 +1,4 @@
-export interface Verify {
+export type Verify = {
   accessToken: string;
   refreshToken: string;
-}
+};

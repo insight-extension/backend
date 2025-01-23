@@ -142,7 +142,7 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  async refundUserSubscriptionBalance(publicKey: string): Promise<void> {
+  async refundUserSubscriptionBalance(publicKey: string): Promise<string> {
     try {
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
@@ -169,10 +169,12 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Refund user's subscription balance
-      await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
+      const transaction: string =
+        await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
       Logger.log(
         `User [${userPublicKey.toString()}] subscription balance [${userSubscriptionVaultBalance}] refunded`,
       );
+      return transaction;
     } catch (error) {
       Logger.error(`Error refunding user's subscription balance: ${error}`);
 
@@ -264,7 +266,6 @@ export class PaymentService implements OnModuleInit {
   }
 
   private async startPayingPerMinutes(client: Socket): Promise<void> {
-    console.log(this.i18nWs(client, 'payment.test'));
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
@@ -422,21 +423,27 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Check if user has free hours left or renew is available
-      const userFreeHoursLeft: number = await this.accountService.getFreeHours(
+      let userFreeHoursLeft: number = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
+      // Get elapsed time since the user's free hours was received last time
+      const differenceInMilliseconds: number =
+        currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
+
+      const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
+
+      const isRenewAvailable: boolean =
+        differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS;
+
+      if (isRenewAvailable) {
+        await this.renewFreeHours(currentUsageStartTime, userPublicKey);
+        userFreeHoursLeft = this.USER_DEFAULT_FREE_HOURS;
+      }
+
       if (userFreeHoursLeft === 0) {
-        const isFreeHoursAvailable: boolean =
-          await this.renewFreeHoursIfAvailable(
-            currentUsageStartTime,
-            userPublicKey,
-            freeHoursStartDate,
-          );
-        if (!isFreeHoursAvailable) {
-          throw new Error(
-            this.i18nWs(client, 'payment.errors.noFreeHoursAvailable'),
-          );
-        }
+        throw new Error(
+          this.i18nWs(client, 'payment.errors.noFreeHoursAvailable'),
+        );
       }
 
       // Set expiration timeout for free hours if it's not stopped manually by the user
@@ -554,6 +561,7 @@ export class PaymentService implements OnModuleInit {
         userPublicKey.toString(),
       );
       const hasRemainingHours: boolean = perHoursLeft > 0;
+
       // Check if user have not used free hours from last using or sufficient balance to buy an hour
       if (
         perHoursLeft === 0 &&
@@ -837,9 +845,9 @@ export class PaymentService implements OnModuleInit {
 
   private async refundSubscriptionBalanceThroughProgram(
     userPublicKey: PublicKey,
-  ) {
+  ): Promise<string> {
     try {
-      const transaction = await this.program.methods
+      const transaction: string = await this.program.methods
         .refundSubscriptionBalance()
         .accounts({
           user: userPublicKey,
@@ -851,6 +859,7 @@ export class PaymentService implements OnModuleInit {
       Logger.log(
         `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
       );
+      return transaction;
     } catch (error) {
       Logger.error(error);
     }
@@ -1017,34 +1026,20 @@ export class PaymentService implements OnModuleInit {
   }
 
   // Return true if free hours are renewed successfully or false otherwise
-  private async renewFreeHoursIfAvailable(
+  private async renewFreeHours(
     usageStartTime: Date,
     userPublicKey: PublicKey,
-    freeHoursStartDate: Date | null,
-  ): Promise<boolean> {
-    // Get elapsed time since the user's free hours was received last time
-    const differenceInMilliseconds: number =
-      usageStartTime.getTime() - freeHoursStartDate.getTime();
-
-    const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
-
-    // Renew free hours and set the start date to the current time if difference is greater than or equal to a week
-    if (differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS) {
-      await this.accountService.setFreeHours(
-        this.USER_DEFAULT_FREE_HOURS,
-        userPublicKey.toString(),
-      );
-
-      await this.accountService.setFreeHoursStartDate(
-        usageStartTime,
-        userPublicKey.toString(),
-      );
-      Logger.log(`User [${userPublicKey.toString()}] free hours renewed`);
-      return true;
-    }
-    // Free hours not renewed
-    Logger.warn(`User [${userPublicKey.toString()}] free hours not renewed`);
-    return false;
+  ): Promise<void> {
+    // Renew free hours and set the start date to the current time
+    await this.accountService.setFreeHours(
+      this.USER_DEFAULT_FREE_HOURS,
+      userPublicKey.toString(),
+    );
+    await this.accountService.setFreeHoursStartDate(
+      usageStartTime,
+      userPublicKey.toString(),
+    );
+    Logger.log(`User [${userPublicKey.toString()}] free hours renewed`);
   }
 
   private getUserInfoAddress(

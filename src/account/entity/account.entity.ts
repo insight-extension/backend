@@ -41,5 +41,5 @@ export class AccountEntity {
     type: Number,
     description: 'Left minutes from pay per hour usage',
   })
-  perHoursLeft;
+  perHoursLeft: number;
 }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SaveAccountDto } from './dto/save-account.dto';
 import { AccountEntity } from './entity/account.entity';
+import { GetFreeHoursInfoResponseDto } from './dto/get-free-hours-info-response.dto';
 
 @Injectable()
 export class AccountService {
@@ -22,7 +23,7 @@ export class AccountService {
   }
 
   async getBalanceFreezingStatus(userPublicKey: string): Promise<boolean> {
-    const account = await this.findOneByPublicKey(userPublicKey);
+    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.isBalanceFrozen;
   }
 
@@ -41,7 +42,7 @@ export class AccountService {
   }
 
   async getFreeHours(userPublicKey: string): Promise<number> {
-    const account = await this.findOneByPublicKey(userPublicKey);
+    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.freeHoursLeft;
   }
 
@@ -57,7 +58,7 @@ export class AccountService {
   }
 
   async getFreeHoursStartDate(userPublicKey: string): Promise<Date | null> {
-    const account = await this.findOneByPublicKey(userPublicKey);
+    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.freeHoursStartDate;
   }
 
@@ -87,7 +88,17 @@ export class AccountService {
   }
 
   async getPerHoursLeft(userPublicKey: string): Promise<number> {
-    const account = await this.findOneByPublicKey(userPublicKey);
+    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.perHoursLeft;
+  }
+
+  async getFreeHoursInfo(
+    userPublicKey: string,
+  ): Promise<GetFreeHoursInfoResponseDto> {
+    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
+    return {
+      freeHoursLeft: account.freeHoursLeft,
+      freeHoursStartDate: account.freeHoursStartDate,
+    };
   }
 }

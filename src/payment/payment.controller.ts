@@ -11,7 +11,7 @@ import { PaymentService } from './payment.service';
 import { RefundTimedBalanceDto } from './dto/refund-timed-balance.dto';
 import { RefundSubscriptionBalanceDto } from './dto/refund-subscription-balance.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('payment')
 @UseGuards(JwtAuthGuard)
@@ -19,27 +19,31 @@ import { ApiResponse, ApiTags } from '@nestjs/swagger';
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
+  @ApiOperation({ summary: 'Refunds user timed balance' })
   @ApiResponse({
     status: 201,
-    description: 'Refunds user timed balance',
+    description: `Returns transaction's signature`,
+    type: String,
   })
   @HttpCode(HttpStatus.CREATED)
   @Post('refund/timed-balance')
   async refundUserTimedBalance(
-    @Body(new ValidationPipe()) dto: RefundTimedBalanceDto,
-  ) {
+    @Body() dto: RefundTimedBalanceDto,
+  ): Promise<string> {
     return await this.paymentService.refundUserTimedBalance(dto.publicKey);
   }
 
+  @ApiOperation({ summary: 'Refunds user subscription balance' })
   @ApiResponse({
     status: 201,
-    description: 'Refunds user subscription balance',
+    description: `Returns transaction's signature`,
+    type: String,
   })
   @HttpCode(HttpStatus.CREATED)
   @Post('refund/subscription-balance')
   async refundUserSubscriptionBalance(
-    @Body(new ValidationPipe()) dto: RefundSubscriptionBalanceDto,
-  ) {
+    @Body() dto: RefundSubscriptionBalanceDto,
+  ): Promise<string> {
     return await this.paymentService.refundUserSubscriptionBalance(
       dto.publicKey,
     );

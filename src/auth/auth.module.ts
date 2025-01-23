@@ -15,6 +15,7 @@ import { WsJwtGuard } from './guards/jwt-ws.guard';
     }),
     CacheModule.register({
       ttl: 30 * 60 * 1000, // 30 min in ms
+      
     }),
   ],
   providers: [AuthService, JwtStrategy, WsJwtGuard],

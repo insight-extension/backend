@@ -1,5 +1,4 @@
 {
-  "test": "en",
   "errors": {
     "insufficientBalance": "Insufficient balance",
     "balanceIsFrozen":"Balance is frozen",

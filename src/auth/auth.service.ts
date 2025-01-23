@@ -1,14 +1,14 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { VerifyDto } from './dto/verify.dto';
-import { Verify } from './interfaces/verify.interface';
-import { Login } from './interfaces/login.interface';
+import { Verify } from './types/verify.type';
+import { Login } from './types/login.type';
 import { ClaimDto } from './dto/claim.dto';
 import { randomBytes } from 'crypto';
 import { ValidateSignatureDto } from './dto/validate-signature.dto';
 import bs58 from 'bs58';
 import { sign } from 'tweetnacl';
-import { AccountCandidates } from './interfaces/account-candidates.interface';
+import { AccountCandidates } from './types/account-candidates.type';
 import { GetNonceDto } from './dto/get-nonce.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';

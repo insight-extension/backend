@@ -1,4 +1,4 @@
-export interface Login {
+export type AccountCandidates = {
   publicKey: string;
   nonce: string;
-}
+};
