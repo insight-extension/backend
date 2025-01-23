@@ -6,7 +6,8 @@
     "invalidSubscriptionType": "Invalid subscription type",
     "noFreeHoursAvailable": "Free hours are not available",
     "fundsRanOut": "Funds ran out",
-    "freeHoursExpired": "Free hours expired"
+    "freeHoursExpired": "Free hours expired",
+    "fetchUserInfoFailed": "Failed to fetch user info"
   },
   "messages": {
     "timedBalanceRefundFailed": "Timed balance refunding failed",

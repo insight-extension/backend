@@ -5,13 +5,11 @@ import {
   HttpStatus,
   Post,
   UseGuards,
-  ValidationPipe,
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
-import { RefundTimedBalanceDto } from './dto/refund-timed-balance.dto';
-import { RefundSubscriptionBalanceDto } from './dto/refund-subscription-balance.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
 
 @ApiTags('payment')
 @UseGuards(JwtAuthGuard)
@@ -19,33 +17,37 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
-  @ApiOperation({ summary: 'Refunds user timed balance' })
+  @ApiOperation({
+    summary: 'Refunds user timed balance. Fetching publicKey from JWT',
+  })
   @ApiResponse({
     status: 201,
     description: `Returns transaction's signature`,
     type: String,
   })
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @Post('refund/timed-balance')
   async refundUserTimedBalance(
-    @Body() dto: RefundTimedBalanceDto,
+    @JwtPublicKey() publicKey: string,
   ): Promise<string> {
-    return await this.paymentService.refundUserTimedBalance(dto.publicKey);
+    return await this.paymentService.refundUserTimedBalance(publicKey);
   }
 
-  @ApiOperation({ summary: 'Refunds user subscription balance' })
+  @ApiOperation({
+    summary: 'Refunds user subscription balance. Fetching publicKey from JWT',
+  })
   @ApiResponse({
     status: 201,
     description: `Returns transaction's signature`,
     type: String,
   })
+  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @Post('refund/subscription-balance')
   async refundUserSubscriptionBalance(
-    @Body() dto: RefundSubscriptionBalanceDto,
+    @JwtPublicKey() publicKey: string,
   ): Promise<string> {
-    return await this.paymentService.refundUserSubscriptionBalance(
-      dto.publicKey,
-    );
+    return await this.paymentService.refundUserSubscriptionBalance(publicKey);
   }
 }

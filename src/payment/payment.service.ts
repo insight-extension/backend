@@ -77,7 +77,7 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    // this.depositToTimedVault(1_000_000);
+    // this.depositToTimedVault(this.USDC_PRICE_PER_MINUTE);
     // this.depositToSubscriptionVault(5);
   }
 
@@ -195,7 +195,7 @@ export class PaymentService implements OnModuleInit {
   async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
     try {
       // Get required payment method from client handshake's header
-      const subscriptionType = client.request.headers.subscription;
+      const subscriptionType = client.request.headers.subscription as string;
 
       // Start payment method based on subscription type
       switch (subscriptionType) {
@@ -302,7 +302,7 @@ export class PaymentService implements OnModuleInit {
       Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
 
       // Define translation usage start time
-      const usageStartTime: Date = new Date();
+      const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
@@ -310,11 +310,20 @@ export class PaymentService implements OnModuleInit {
         `Cache set for user [${userPublicKey.toString()}] with start time: [${usageStartTime}]`,
       );
 
+      // Calculate the total minutes the user can use with his balance
+      const minutesLimit: number = Math.floor(
+        userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE,
+      );
+
       // Determine the expiration time of the user's balance
       const usageTimeLimit: Date = this.getTimeLimitPerMinutes(
         usageStartTime,
         userTimedVaultBalance,
+        minutesLimit,
       );
+
+      // TODO: set interval to notify user about minutes left
+      this.setUsageNotifyingInterval(client, userPublicKey, minutesLimit);
 
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       await this.setBalanceExpirationTimeout(
@@ -329,7 +338,7 @@ export class PaymentService implements OnModuleInit {
       );
       // Disconnect client if error occurs
     } catch (error) {
-      Logger.error(`Error starting pay per usage: [${error}]`);
+      Logger.error(`Error starting pay per minutes: [${error}]`);
 
       // Emit error to client
       const message: string = this.i18nWs(
@@ -349,13 +358,20 @@ export class PaymentService implements OnModuleInit {
   private async stopPayingPerMinutes(client: Socket): Promise<void> {
     try {
       // Set the usage end time when the client stops paying per time
-      const usageEndTime: Date = new Date();
+      const usageEndTime = new Date();
 
       // Get the usage start time from cache
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
+
+      if (!usageStartTime) {
+        Logger.warn(
+          `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
+        );
+        return;
+      }
 
       // Calculate the usage time in milliseconds
       const timeDifference: number =
@@ -422,11 +438,10 @@ export class PaymentService implements OnModuleInit {
         );
       }
 
-      // Check if user has free hours left or renew is available
+      // Check if renew is available
       let userFreeHoursLeft: number = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
-      // Get elapsed time since the user's free hours was received last time
       const differenceInMilliseconds: number =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
@@ -435,6 +450,7 @@ export class PaymentService implements OnModuleInit {
       const isRenewAvailable: boolean =
         differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS;
 
+      // Renew free hour if available
       if (isRenewAvailable) {
         await this.renewFreeHours(currentUsageStartTime, userPublicKey);
         userFreeHoursLeft = this.USER_DEFAULT_FREE_HOURS;
@@ -562,7 +578,8 @@ export class PaymentService implements OnModuleInit {
       );
       const hasRemainingHours: boolean = perHoursLeft > 0;
 
-      // Check if user have not used free hours from last using or sufficient balance to buy an hour
+      // Check if user have not used free hours from last using
+      // or sufficient balance to buy an hour
       if (
         perHoursLeft === 0 &&
         userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
@@ -741,10 +758,18 @@ export class PaymentService implements OnModuleInit {
         userSubscriptionInfoAddress,
       );
 
+      // Check if user info is fetched
+      if (!userInfo) {
+        throw new Error(
+          this.i18nWs(client, 'payment.errors.fetchUserInfoFailed'),
+        );
+      }
+
       const userVaultBalance: number =
         await this.getUserVaultBalance(userVaultAddress);
 
-      // Define timestamps for the current time and the expiration time
+      // Define timestamps for the current time
+      // and the subscription expiration time
       const currentTimestamp: number = new Date().getTime() / 1000; // Convert to seconds
       const subscriptionExpirationTimestamp: number =
         userInfo.expiration.toNumber();
@@ -878,11 +903,9 @@ export class PaymentService implements OnModuleInit {
   private getTimeLimitPerMinutes(
     startUsageTime: Date,
     userTimedVaultBalance: number,
+    minutesLimit: number,
   ): Date {
     // Round down the user's balance to the nearest available minute
-    const minutesLimit: number = Math.floor(
-      userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE,
-    );
 
     // Convert minutes limit to milliseconds
     const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
@@ -934,6 +957,7 @@ export class PaymentService implements OnModuleInit {
 
       // Clear user's resources
       this.cacheManager.del(userPublicKey.toString());
+      Logger.log(`User's [${userPublicKey.toString()}] cache deleted`);
       this.accountService.setBalanceFreezingStatus(
         false,
         userPublicKey.toString(),
@@ -942,7 +966,7 @@ export class PaymentService implements OnModuleInit {
       // Emit error to client and disconnect him
       const message: string = this.i18nWs(
         client,
-        `payment.messages.startPayPer${hasRemainingHours ? 'Hours' : 'Usage'}`,
+        `payment.messages.stopPayPer${hasRemainingHours ? 'Hours' : 'Usage'}Failed`,
       );
       const error: string = this.i18nWs(client, 'payment.errors.fundsRanOut');
       this.emitErrorToWsClient(client, message, error);
@@ -970,6 +994,7 @@ export class PaymentService implements OnModuleInit {
       await this.accountService.setFreeHours(0, userPublicKey.toString());
 
       this.cacheManager.del(userPublicKey.toString());
+      Logger.log(`User's [${userPublicKey.toString()}] cache deleted`);
       Logger.log(
         `User's [${userPublicKey.toString()}] free hours expired. Timeout executed`,
       );
@@ -988,7 +1013,7 @@ export class PaymentService implements OnModuleInit {
     };
 
     // Add timeout to scheduler registry
-    const millisecondsToExecute: number = userFreeHoursLeft * 60 * 1000;
+    const millisecondsToExecute: number = userFreeHoursLeft * 60 * 1000; // 60 seconds * 1000 milliseconds
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     const taskName: string = userPublicKey.toString();
 
@@ -1011,7 +1036,14 @@ export class PaymentService implements OnModuleInit {
     try {
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
     } catch (error) {
-      Logger.error(`Error deleting timeout: [${error}]`);
+      Logger.warn(`Error deleting timeout: [${error}]`);
+    }
+
+    // Remove user's interval
+    try {
+      this.schedulerRegistry.deleteInterval(userPublicKey.toString());
+    } catch (error) {
+      Logger.warn(`Error deleting interval: [${error}]`);
     }
 
     // Unfreeze user's balance
@@ -1070,9 +1102,29 @@ export class PaymentService implements OnModuleInit {
     client.emit('error', errorToEmit.getResponse());
   }
 
+  private async setUsageNotifyingInterval(
+    client: Socket,
+    publicKey: PublicKey,
+    minutesLimit: number,
+  ): Promise<void> {
+    // Initial minutes left notification
+    client.emit('minutesLeft', minutesLimit);
+
+    // Define callback to notify user
+    // about minutes left every minute
+    const millisecondsToNotify: number = 60 * 1000; // 60 seconds * 1000 milliseconds
+
+    const callback = () => {
+      client.emit('minutesLeft', --minutesLimit); // Decrease minutes left by 1
+    };
+
+    const interval = setInterval(callback, millisecondsToNotify);
+    this.schedulerRegistry.addInterval(publicKey.toString(), interval);
+  }
+
   private i18nWs(client: Socket, textToTranslate: string): string {
     // Get client's language from handshake's headers
-    const lang = client.handshake.headers['accept-language'] || 'en';
+    const lang: string = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
   }
 

@@ -15,6 +15,7 @@ import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
 import 'dotenv/config';
 import { I18nService } from 'nestjs-i18n';
+import { JwtExpire } from './constants/jwt-expire.enum';
 @Injectable()
 export class AuthService {
   constructor(
@@ -82,13 +83,13 @@ export class AuthService {
 
   private generateAccessToken(payload: any): string {
     return this.jwtService.sign(payload, {
-      expiresIn: '10m',
+      expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
     });
   }
 
   private generateRefreshToken(payload: any): string {
     return this.jwtService.sign(payload, {
-      expiresIn: '30d',
+      expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
     });
   }
 
