@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { IsSolPubkey } from 'src/utils/decorators/is-sol-pubkey.decorator';
 
 export class VerifyDto {
   @ApiProperty({
@@ -7,7 +8,7 @@ export class VerifyDto {
     type: String,
   })
   @IsString()
-  @IsNotEmpty()
+  @IsSolPubkey()
   publicKey: string;
 
   @ApiProperty({

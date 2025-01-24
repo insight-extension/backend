@@ -8,7 +8,11 @@ datasource db {
 }
 
 model Account {
-  id        String   @id @default(uuid())
-  publicKey String   @unique
-  createdAt DateTime @default(now())
+  id                 String    @id @default(uuid())
+  publicKey          String    @unique
+  createdAt          DateTime  @default(now())
+  isBalanceFrozen    Boolean   @default(false)
+  freeHoursLeft      Float     @default(3)
+  freeHoursStartDate DateTime?
+  perHoursLeft       Float     @default(0)
 }

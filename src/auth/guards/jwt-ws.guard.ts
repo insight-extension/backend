@@ -1,6 +1,7 @@
 import {
-  CanActivate,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -45,8 +46,20 @@ export class WsJwtGuard {
       }
       return true;
     } catch (error) {
-      Logger.warn(`JWT verification failed: ${error.message}`);
-      client._error(error);
+      // Emit error to client and disconnect
+      const errorToEmit = new HttpException(
+        {
+          message: 'Error while authenticating user',
+          error: error.message,
+          statusCode: HttpStatus.FORBIDDEN,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+      client.emit('error', errorToEmit.getResponse());
+      client.disconnect();
+      Logger.warn(
+        `Client's [${client.id}] JWT verification failed: ${error.message}`,
+      );
       return false;
     }
   }

@@ -1,24 +1,27 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { VerifyDto } from './dto/verify.dto';
-import { Verify } from './interfaces/verify.interface';
-import { Login } from './interfaces/login.interface';
+import { Verify } from './types/verify.type';
+import { Login } from './types/login.type';
 import { ClaimDto } from './dto/claim.dto';
 import { randomBytes } from 'crypto';
 import { ValidateSignatureDto } from './dto/validate-signature.dto';
 import bs58 from 'bs58';
 import { sign } from 'tweetnacl';
-import { AccountCandidates } from './interfaces/account-candidates.interface';
+import { AccountCandidates } from './types/account-candidates.type';
 import { GetNonceDto } from './dto/get-nonce.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
 import 'dotenv/config';
+import { I18nService } from 'nestjs-i18n';
+import { JwtExpire } from './constants/jwt-expire.enum';
 @Injectable()
 export class AuthService {
   constructor(
     private accountService: AccountService,
     private jwtService: JwtService,
+    private readonly i18n: I18nService,
     // cacheManager<key: string(publicKey), value: string(nonce)>
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
@@ -27,13 +30,13 @@ export class AuthService {
   async verify(dto: VerifyDto): Promise<Verify> {
     const account = await this.validateSignature(dto);
     if (!account) {
-      throw new Error('Invalid signature');
+      throw new Error(this.i18n.t('auth.invalidSignature'));
     }
     const accountExists = await this.accountService.findOneByPublicKey(
       account.publicKey,
     );
     if (!accountExists) {
-      this.accountService.save(account);
+      this.accountService.saveAccount(account);
     }
     return {
       accessToken: this.generateAccessToken({ publicKey: account.publicKey }),
@@ -64,7 +67,7 @@ export class AuthService {
         payload.publicKey,
       );
       if (!account) {
-        throw new Error('Account not found');
+        throw new Error(this.i18n.t('auth.accountNotFound'));
       }
 
       const newPayload = { publicKey: payload.publicKey };
@@ -74,19 +77,19 @@ export class AuthService {
         refreshToken: this.generateRefreshToken(newPayload),
       };
     } catch {
-      throw new Error('Invalid refresh token');
+      throw new Error(this.i18n.t('auth.invalidRefreshToken'));
     }
   }
 
   private generateAccessToken(payload: any): string {
     return this.jwtService.sign(payload, {
-      expiresIn: '10m',
+      expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
     });
   }
 
   private generateRefreshToken(payload: any): string {
     return this.jwtService.sign(payload, {
-      expiresIn: '30d',
+      expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
     });
   }
 
@@ -94,7 +97,7 @@ export class AuthService {
   private async validateSignature(dto: ValidateSignatureDto) {
     const nonce: string = await this.cacheManager.get(dto.publicKey);
     if (!nonce) {
-      throw new BadRequestException('Candidate not found');
+      throw new BadRequestException(this.i18n.t('auth.candidateNotFound'));
     }
 
     const publicKeyUint8 = bs58.decode(dto.publicKey);
@@ -108,7 +111,7 @@ export class AuthService {
     );
 
     if (!isValid) {
-      throw new BadRequestException('Invalid signature');
+      throw new BadRequestException(this.i18n.t('auth.invalidSignature'));
     }
 
     return {

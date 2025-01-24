@@ -1,12 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as fs from 'fs'; // Import the 'fs' module
 import path from 'path';
 import 'dotenv/config';
-
-// import helmet from 'helmet';
 
 async function bootstrap() {
   // SSL setup
@@ -21,6 +19,7 @@ async function bootstrap() {
   );
   // TODO: improve logger
   app.useLogger(new Logger());
+  app.useGlobalPipes(new ValidationPipe());
   app.enableCors();
   app.setGlobalPrefix('api');
   // setup swagger

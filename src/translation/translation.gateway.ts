@@ -14,12 +14,16 @@ import { Socket, Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
+import { PaymentService } from 'src/payment/payment.service';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
-  constructor(private readonly wsJwtGuard: WsJwtGuard) {}
+  constructor(
+    private readonly wsJwtGuard: WsJwtGuard,
+    private readonly paymentService: PaymentService,
+  ) {}
 
   @WebSocketServer()
   private server: Server;
@@ -51,22 +55,26 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
-    // Validate auth
-    this.wsJwtGuard.canActivate(client);
+    // Check if user is authorized
+    const isAuthorized = await this.wsJwtGuard.canActivate(client);
+    if (isAuthorized) {
+      // Start translation with required payment method
+      this.paymentService.startPaymentWithRequiredMethod(client);
 
-    console.log(`Client connected: ${client.id}`);
-    client.on('audioData', async (data: any) => {
-      if (data instanceof Uint8Array) {
-        await this.handleAudioData(Buffer.from(data), client);
-      } else {
-        console.warn('Unexpected data format:', typeof data);
-      }
-    });
+      client.on('audioData', async (data: any) => {
+        if (data instanceof Uint8Array) {
+          await this.handleAudioData(Buffer.from(data), client);
+        } else {
+          console.warn('Unexpected data format:', typeof data);
+        }
+      });
+    }
   }
 
   async handleDisconnect(client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
     await this.cleanupSession(client.id);
+    await this.paymentService.stopPaymentWithRequiredMethod(client);
   }
 
   private async cleanupSession(clientId: string) {
@@ -96,7 +104,6 @@ export class TranslationGateway
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
   ) {
-    console.log('ACCESSED');
     // If a session is already being created, wait for completion
     if (this.creatingSessions.has(client.id)) {
       return;
