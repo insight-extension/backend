@@ -22,6 +22,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe());
   app.enableCors();
   app.setGlobalPrefix('api');
+
   // setup swagger
   const config = new DocumentBuilder()
     .setTitle('Insight API')
@@ -29,6 +30,7 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/swagger', app, document);
+
   // setup port
   await app.listen(process.env.API_PORT || 11001, () => {
     Logger.log(`Listening on port ${process.env.API_PORT || 11001}`);

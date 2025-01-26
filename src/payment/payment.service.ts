@@ -13,7 +13,13 @@ import {
   setProvider,
   Wallet,
 } from '@coral-xyz/anchor';
-import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
+import {
+  Account,
+  clusterApiUrl,
+  Connection,
+  Keypair,
+  PublicKey,
+} from '@solana/web3.js';
 import 'dotenv/config';
 import * as idl from './interfaces/deposit_program.json';
 import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
@@ -27,10 +33,10 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
-import { DepositProgram } from './interfaces/deposit_program';
 import { I18nService } from 'nestjs-i18n';
-import { InfoAccountType } from './constants/info-account-type.enum';
+import { AccountType } from './constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
+import { DepositProgram } from './interfaces/deposit_program';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -47,8 +53,6 @@ export class PaymentService implements OnModuleInit {
   private readonly USDC_PRICE_PER_MINUTE =
     SubscriptionPrice.PER_USAGE * 1_000_000;
   private readonly USDC_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
-  private readonly USDC_SUBSCRIPTION_PRICE =
-    SubscriptionPrice.PER_MONTH * 1_000_000;
 
   // Default free hours for new users
   private readonly USER_DEFAULT_FREE_HOURS: number = 3;
@@ -77,54 +81,56 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    // this.depositToTimedVault(this.USDC_PRICE_PER_MINUTE);
-    // this.depositToSubscriptionVault(5);
+    // this.depositToVault(this.USDC_PRICE_PER_MINUTE);
   }
 
   onModuleInit() {
     Logger.log('Payment Service initialized');
   }
 
-  async refundUserTimedBalance(publicKey: string): Promise<string> {
+  // TODO: test this method
+  async refundUserBalance(publicKey: string, amount: number): Promise<string> {
     try {
-      // Check if balance frozen
-      const isBalanceFrozen: boolean =
-        await this.accountService.getBalanceFreezingStatus(publicKey);
+      // User's PDA address
+      const userPublicKey = new PublicKey(publicKey);
+      const userInfoAddress = this.getUserInfoAddress(
+        AccountType.INFO,
+        userPublicKey,
+      );
 
+      const userInfo =
+        await this.program.account.userInfo.fetch(userInfoAddress);
+
+      // Check if balance is frozen
+      const isBalanceFrozen = userInfo.isBalanceFrozen;
       if (isBalanceFrozen) {
         throw new Error(this.i18n.t('payment.errors.balanceIsFrozen'));
       }
 
-      // User's PDA address
-      const userPublicKey = new PublicKey(publicKey);
-
-      const userTimedInfoAddress = this.getUserInfoAddress(
-        InfoAccountType.TIMED,
-        userPublicKey,
-      );
-
       // ATA address where user's balance is stored
-      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
+      const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userTimedInfoAddress,
+        userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
 
-      const userTimedVaultBalance: number = await this.getUserVaultBalance(
+      const userVaultBalance = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
 
       // Check if user has balance to refund
-      if (userTimedVaultBalance === 0) {
+      if (userVaultBalance === 0) {
         throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
       }
 
       // Refund user's balance
-      const transaction =
-        await this.refundTimedBalanceThroughProgram(userPublicKey);
+      const transaction = await this.refundBalanceThroughProgram(
+        userPublicKey,
+        amount,
+      );
       Logger.log(
-        `User [${userPublicKey.toString()}] balance [${userTimedVaultBalance}] refunded`,
+        `User [${userPublicKey.toString()}] balance [${userVaultBalance}] refunded`,
       );
       return transaction;
     } catch (error) {
@@ -134,56 +140,6 @@ export class PaymentService implements OnModuleInit {
       throw new HttpException(
         {
           message: this.i18n.t('payment.messages.timedBalanceRefundFailed'),
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
-      );
-    }
-  }
-
-  async refundUserSubscriptionBalance(publicKey: string): Promise<string> {
-    try {
-      // User's PDA address
-      const userPublicKey = new PublicKey(publicKey);
-      const userSubscriptionInfoAddress = this.getUserInfoAddress(
-        InfoAccountType.SUBSCRIPTION,
-        userPublicKey,
-      );
-
-      // ATA address where user's balance is stored
-      const userSubscriptionVaultAddress: PublicKey =
-        await getAssociatedTokenAddress(
-          this.USDC_TOKEN_ADDRESS,
-          userSubscriptionInfoAddress,
-          true,
-          this.TOKEN_PROGRAM,
-        );
-
-      const userSubscriptionVaultBalance: number =
-        await this.getUserVaultBalance(userSubscriptionVaultAddress);
-
-      // Check if user balance is positive
-      if (userSubscriptionVaultBalance === 0) {
-        throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
-      }
-
-      // Refund user's subscription balance
-      const transaction: string =
-        await this.refundSubscriptionBalanceThroughProgram(userPublicKey);
-      Logger.log(
-        `User [${userPublicKey.toString()}] subscription balance [${userSubscriptionVaultBalance}] refunded`,
-      );
-      return transaction;
-    } catch (error) {
-      Logger.error(`Error refunding user's subscription balance: ${error}`);
-
-      // Throw exception to client
-      throw new HttpException(
-        {
-          message: this.i18n.t(
-            'payment.messages.subscriptionBalanceRefundFailed',
-          ),
           error: error.message,
           statusCode: HttpStatus.FORBIDDEN,
         },
@@ -203,7 +159,7 @@ export class PaymentService implements OnModuleInit {
           await this.startPayingPerMinutes(client);
           break;
         case SubscriptionType.PER_MONTH:
-          await this.startPayingWithSubscription(client);
+          //await this.startPayingWithSubscription(client);
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.startFreeHoursUsing(client);
@@ -218,7 +174,7 @@ export class PaymentService implements OnModuleInit {
       }
     } catch (error) {
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.startTranslationFailed',
       );
@@ -253,7 +209,7 @@ export class PaymentService implements OnModuleInit {
       }
     } catch (error) {
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.stopTranslationFailed',
       );
@@ -270,35 +226,30 @@ export class PaymentService implements OnModuleInit {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
 
-      const userTimedInfoAddress = this.getUserInfoAddress(
-        InfoAccountType.TIMED,
+      const userInfoAddress = this.getUserInfoAddress(
+        AccountType.INFO,
         userPublicKey,
       );
 
-      // ATA address where user's balance is stored
-      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
+      // ATA address where user balance is stored
+      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userTimedInfoAddress,
+        userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
 
-      const userTimedVaultBalance: number = await this.getUserVaultBalance(
-        userTimedVaultAddress,
-      );
+      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
 
       // Check if user has sufficient balance
-      if (userTimedVaultBalance < this.USDC_PRICE_PER_MINUTE) {
+      if (userVaultBalance < this.USDC_PRICE_PER_MINUTE) {
         throw new Error(
           this.i18nWs(client, 'payment.errors.insufficientBalance'),
         );
       }
 
-      // Freeze user's balance
-      await this.accountService.setBalanceFreezingStatus(
-        true,
-        userPublicKey.toString(),
-      );
+      // Freeze user balance
+      await this.freezeBalanceThroughProgram(client, userPublicKey);
       Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
 
       // Define translation usage start time
@@ -311,15 +262,14 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Calculate the total minutes the user can use with his balance
-      const minutesLimit: number = Math.floor(
-        userTimedVaultBalance / this.USDC_PRICE_PER_MINUTE,
+      const minutesLimit = Math.floor(
+        userVaultBalance / this.USDC_PRICE_PER_MINUTE,
       );
 
       // Determine the expiration time of the user's balance
-      const usageTimeLimit: Date = this.getTimeLimitPerMinutes(
+      const usageTimeLimit = this.getTimeLimitPerMinutes(
         usageStartTime,
-        userTimedVaultBalance,
-        minutesLimit,
+        userVaultBalance,
       );
 
       // TODO: set interval to notify user about minutes left
@@ -331,7 +281,7 @@ export class PaymentService implements OnModuleInit {
         userPublicKey,
         usageStartTime,
         usageTimeLimit,
-        userTimedVaultBalance,
+        userVaultBalance,
       );
       Logger.log(
         `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
@@ -341,7 +291,7 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting pay per minutes: [${error}]`);
 
       // Emit error to client
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.startPayPerUsageFailed',
       );
@@ -361,11 +311,13 @@ export class PaymentService implements OnModuleInit {
       const usageEndTime = new Date();
 
       // Get the usage start time from cache
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      const usageStartTime: Date = await this.cacheManager.get(
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      const usageStartTime: Date | null = await this.cacheManager.get(
         userPublicKey.toString(),
       );
 
+      // Check if user has usage start time
+      // For situations when timeouts are executed
       if (!usageStartTime) {
         Logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
@@ -374,23 +326,22 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Calculate the usage time in milliseconds
-      const timeDifference: number =
-        usageEndTime.getTime() - usageStartTime.getTime();
+      const timeDifference = usageEndTime.getTime() - usageStartTime.getTime();
 
       // Convert the time difference to minutes
-      const timeDifferenceInMinutes: number = timeDifference / (60 * 1000); // 60 sec * 1000 ms
+      const timeDifferenceInMinutes = timeDifference / (60 * 1000); // 60 sec * 1000 ms
 
       // Convert seconds into minutes for comparison
-      const SECONDS_TO_ROUND: number = 40;
-      const secondsInMinutes: number = SECONDS_TO_ROUND / 60;
+      const SECONDS_TO_ROUND = 40;
+      const secondsInMinutes = SECONDS_TO_ROUND / 60;
 
       // Round up the total used minutes if seconds >= 40
-      const totalUsedMinutes: number =
+      const totalUsedMinutes =
         timeDifferenceInMinutes % 1 >= secondsInMinutes
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
 
-      const totalPrice: number = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
+      const totalPrice = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
       Logger.log(
         `User's [${userPublicKey.toString()}] total price: [${totalPrice}]`,
       );
@@ -401,11 +352,11 @@ export class PaymentService implements OnModuleInit {
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
-        await this.payPerTimeThroughProgram(userPublicKey, totalPrice);
+        await this.payPerMinuteThroughProgram(userPublicKey, totalPrice);
       }
     } catch (error) {
       // Disconnect client if error occurs
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.stopPayPerUsageFailed',
       );
@@ -424,10 +375,10 @@ export class PaymentService implements OnModuleInit {
         await this.accountService.getFreeHoursStartDate(
           userPublicKey.toString(),
         );
-      const currentUsageStartTime: Date = new Date();
+      const currentUsageStartTime = new Date();
 
       // Set free hours start date if it's not set (for new users)
-      if (freeHoursStartDate === null) {
+      if (!freeHoursStartDate) {
         await this.accountService.setFreeHoursStartDate(
           currentUsageStartTime,
           userPublicKey.toString(),
@@ -439,15 +390,15 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Check if renew is available
-      let userFreeHoursLeft: number = await this.accountService.getFreeHours(
+      let userFreeHoursLeft = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
-      const differenceInMilliseconds: number =
+      const differenceInMilliseconds =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
       const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
 
-      const isRenewAvailable: boolean =
+      const isRenewAvailable =
         differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS;
 
       // Renew free hour if available
@@ -481,7 +432,7 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.startFreeHoursFailed',
       );
@@ -501,26 +452,26 @@ export class PaymentService implements OnModuleInit {
 
   private async stopFreeHoursUsing(client: Socket): Promise<void> {
     try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      const usageEndTime: Date = new Date();
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      const usageEndTime = new Date();
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
 
       // Calculate remaining free hours
-      const timeDifferenceInMilliseconds: number =
+      const timeDifferenceInMilliseconds =
         usageEndTime.getTime() - usageStartTime.getTime();
 
       const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000; // minutes * seconds * milliseconds
 
-      const userFreeHoursLeft: number = await this.accountService.getFreeHours(
+      const userFreeHoursLeft = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
 
-      const totalUsedTime: number =
+      const totalUsedTime =
         timeDifferenceInMilliseconds / ONE_HOUR_IN_MILLISECONDS;
 
-      const remainingFreeHours: number = userFreeHoursLeft - totalUsedTime;
+      const remainingFreeHours = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
       await this.accountService.setFreeHours(
@@ -544,7 +495,7 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error stopping free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.stopFreeHoursFailed',
       );
@@ -555,28 +506,28 @@ export class PaymentService implements OnModuleInit {
 
   private async startPayingPerHours(client: Socket): Promise<void> {
     try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
       const userTimedInfoAddress = this.getUserInfoAddress(
-        InfoAccountType.TIMED,
+        AccountType.INFO,
         userPublicKey,
       );
 
       // ATA address where user's balance is stored
-      const userTimedVaultAddress: PublicKey = await getAssociatedTokenAddress(
+      const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
         userTimedInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
-      const userTimedVaultBalance: number = await this.getUserVaultBalance(
+      const userTimedVaultBalance = await this.getUserVaultBalance(
         userTimedVaultAddress,
       );
 
       // Get user's hours left in decimal hours
-      const perHoursLeft: number = await this.accountService.getPerHoursLeft(
+      const perHoursLeft = await this.accountService.getPerHoursLeft(
         userPublicKey.toString(),
       );
-      const hasRemainingHours: boolean = perHoursLeft > 0;
+      const hasRemainingHours = perHoursLeft > 0;
 
       // Check if user have not used free hours from last using
       // or sufficient balance to buy an hour
@@ -590,14 +541,11 @@ export class PaymentService implements OnModuleInit {
       }
 
       // Freeze user's balance
-      await this.accountService.setBalanceFreezingStatus(
-        true,
-        userPublicKey.toString(),
-      );
+      await this.freezeBalanceThroughProgram(client, userPublicKey);
       Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
 
       // Define translation usage start time
-      const usageStartTime: Date = new Date();
+      const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
@@ -611,14 +559,11 @@ export class PaymentService implements OnModuleInit {
       const availableTimeInMilliseconds: number =
         availableTimeFromBalance * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
 
-      let usageTimeLimit: Date = new Date(
-        Date.now() + availableTimeInMilliseconds,
-      );
+      let usageTimeLimit = new Date(Date.now() + availableTimeInMilliseconds);
 
       // Recalculate the time limit for the user's balance if free hours are available
       if (perHoursLeft > 0) {
-        const perHoursLeftInMilliseconds: number =
-          perHoursLeft * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+        const perHoursLeftInMilliseconds = perHoursLeft * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
 
         // Add hours left to the available time
         usageTimeLimit = new Date(
@@ -644,7 +589,7 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error starting pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.startPayPerHoursFailed',
       );
@@ -652,7 +597,7 @@ export class PaymentService implements OnModuleInit {
       client.disconnect();
 
       // Release resources if error occurs
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey);
       Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
     }
@@ -660,57 +605,56 @@ export class PaymentService implements OnModuleInit {
 
   private async stopPayingPerHours(client: Socket): Promise<void> {
     try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      const usageEndTime: Date = new Date();
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      const usageEndTime = new Date();
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
 
       // Calculate the total used time in milliseconds
-      const usageTimeInMilliseconds: number =
+      const usageTimeInMilliseconds =
         usageEndTime.getTime() - usageStartTime.getTime();
 
-      const perHoursLeft: number = await this.accountService.getPerHoursLeft(
-        userPublicKey.toString(),
+      const userInfoAddress = this.getUserInfoAddress(
+        AccountType.INFO,
+        userPublicKey,
       );
+      const userInfo =
+        await this.program.account.userInfo.fetch(userInfoAddress);
+      const perHoursLeft: number = userInfo.perHourLeft;
 
-      const usageTimeInHours: number =
-        usageTimeInMilliseconds / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
-
+      const usageTimeInHours = usageTimeInMilliseconds / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
       const totalUsageInHours = perHoursLeft - usageTimeInHours;
 
       // If totalUsage is negative, user has used more remaining hours than he has left
       if (totalUsageInHours < 0) {
         // Calculate the total usage that should be paid (without hours left)
-        const totalHoursToPay: number = Math.ceil(Math.abs(totalUsageInHours));
+        const totalHoursToPay = Math.ceil(Math.abs(totalUsageInHours));
 
         // Set per hours left after the usage
-        const newPerHoursLeft: number =
-          totalHoursToPay - Math.abs(totalUsageInHours);
+        const newPerHoursLeft = totalHoursToPay - Math.abs(totalUsageInHours);
 
-        await this.accountService.setPerHoursLeft(
+        // Calculate the total price for the used hours
+        const totalPriceInRawUSDC = totalHoursToPay * this.USDC_PRICE_PER_HOUR;
+
+        // Pay for the used hours
+        await this.payPerHourThroughProgram(
+          userPublicKey,
+          totalPriceInRawUSDC,
           newPerHoursLeft,
-          userPublicKey.toString(),
         );
-
         Logger.log(
           `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeft}`,
         );
-
-        // Calculate the total price for the used hours
-        const totalPriceInRawUSDC: number =
-          totalHoursToPay * this.USDC_PRICE_PER_HOUR;
-
-        // Pay for the used hours
-        await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
         Logger.log(
           `User [${userPublicKey.toString()}] paid [${totalPriceInRawUSDC}] USDC for [${totalHoursToPay}] used hours`,
         );
       } else {
         // Set per hours left after the usage
-        await this.accountService.setPerHoursLeft(
+        await this.payPerHourThroughProgram(
+          userPublicKey,
+          0, // No new hours to pay
           totalUsageInHours,
-          userPublicKey.toString(),
         );
         Logger.log(
           `User's [${userPublicKey.toString()}] per hours left: [${totalUsageInHours}]`,
@@ -724,7 +668,7 @@ export class PaymentService implements OnModuleInit {
       Logger.error(`Error stopping pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.stopPayPerHoursFailed',
       );
@@ -737,80 +681,13 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async startPayingWithSubscription(client: Socket): Promise<void> {
-    try {
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-
-      const userSubscriptionInfoAddress = this.getUserInfoAddress(
-        InfoAccountType.SUBSCRIPTION,
-        userPublicKey,
-      );
-
-      // ATA address where user's balance is stored
-      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
-        userSubscriptionInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
-
-      const userInfo = await this.program.account.userSubscriptionInfo.fetch(
-        userSubscriptionInfoAddress,
-      );
-
-      // Check if user info is fetched
-      if (!userInfo) {
-        throw new Error(
-          this.i18nWs(client, 'payment.errors.fetchUserInfoFailed'),
-        );
-      }
-
-      const userVaultBalance: number =
-        await this.getUserVaultBalance(userVaultAddress);
-
-      // Define timestamps for the current time
-      // and the subscription expiration time
-      const currentTimestamp: number = new Date().getTime() / 1000; // Convert to seconds
-      const subscriptionExpirationTimestamp: number =
-        userInfo.expiration.toNumber();
-
-      const isSubscriptionExpired: boolean =
-        currentTimestamp > subscriptionExpirationTimestamp;
-
-      // Check if user's subscription is expired or not initialized
-      if (isSubscriptionExpired || !subscriptionExpirationTimestamp) {
-        // Check if user has sufficient balance to pay for the subscription
-        if (userVaultBalance < this.USDC_SUBSCRIPTION_PRICE) {
-          throw new Error(
-            this.i18nWs(client, 'payment.errors.insufficientBalance'),
-          );
-        }
-
-        await this.buySubscriptionThroughProgram(
-          userPublicKey,
-          this.USDC_SUBSCRIPTION_PRICE,
-        );
-      }
-    } catch (error) {
-      Logger.error(`Error starting subscription: [${error}]`);
-
-      // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
-        client,
-        'payment.messages.startSubscriptionFailed',
-      );
-      this.emitErrorToWsClient(client, message, error);
-      client.disconnect();
-    }
-  }
-
-  private async payPerTimeThroughProgram(
+  private async payPerMinuteThroughProgram(
     userPublicKey: PublicKey,
-    totalPriceInRawUSDC: number,
+    priceInRawUSDC: number,
   ): Promise<void> {
     try {
       const transaction = await this.program.methods
-        .payPerTime(new anchor.BN(totalPriceInRawUSDC))
+        .payPerMinuteAndUnfreezeBalance(new anchor.BN(priceInRawUSDC))
         .accounts({
           user: userPublicKey,
           token: this.USDC_TOKEN_ADDRESS,
@@ -824,13 +701,17 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async buySubscriptionThroughProgram(
+  private async payPerHourThroughProgram(
     userPublicKey: PublicKey,
     priceInRawUSDC: number,
+    perHoursLeft: number,
   ): Promise<void> {
     try {
       const transaction = await this.program.methods
-        .subscribeWithVault(new anchor.BN(priceInRawUSDC))
+        .payPerHourAndUnfreezeBalance(
+          new anchor.BN(priceInRawUSDC),
+          new anchor.BN(perHoursLeft),
+        )
         .accounts({
           user: userPublicKey,
           token: this.USDC_TOKEN_ADDRESS,
@@ -838,20 +719,19 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(
-        `Subscription bought by [${userPublicKey.toString()}], transaction: [${transaction}]`,
-      );
+      Logger.log(`Payment done: [${transaction}]`);
     } catch (error) {
       Logger.error(error);
     }
   }
 
-  private async refundTimedBalanceThroughProgram(
+  private async refundBalanceThroughProgram(
     userPublicKey: PublicKey,
+    amountInRawUSDC: number,
   ): Promise<string> {
     try {
-      const transaction: string = await this.program.methods
-        .refundTimedBalance()
+      const transaction = await this.program.methods
+        .refund(amountInRawUSDC)
         .accounts({
           user: userPublicKey,
           token: this.USDC_TOKEN_ADDRESS,
@@ -868,50 +748,47 @@ export class PaymentService implements OnModuleInit {
     }
   }
 
-  private async refundSubscriptionBalanceThroughProgram(
+  private async freezeBalanceThroughProgram(
+    client: Socket,
     userPublicKey: PublicKey,
   ): Promise<string> {
     try {
-      const transaction: string = await this.program.methods
-        .refundSubscriptionBalance()
+      const transaction = await this.program.methods
+        .freezeBalance()
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
         .rpc();
-      Logger.log(
-        `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
-      );
       return transaction;
     } catch (error) {
-      Logger.error(error);
+      Logger.error(
+        `Error freezing user's [${userPublicKey.toString()}] balance: [${error}]`,
+      );
+      throw new Error(
+        this.i18nWs(client, 'payment.errors.balanceFreezingFailed'),
+      );
     }
   }
-
   private async getUserVaultBalance(
     userTimedVaultAddress: PublicKey,
   ): Promise<number> {
     const balanceInfo = await this.connection.getTokenAccountBalance(
       userTimedVaultAddress,
     );
-    const balance: number = parseInt(balanceInfo.value.amount);
+    const balance = parseInt(balanceInfo.value.amount);
     return balance;
   }
 
   private getTimeLimitPerMinutes(
     startUsageTime: Date,
-    userTimedVaultBalance: number,
     minutesLimit: number,
   ): Date {
-    // Round down the user's balance to the nearest available minute
-
     // Convert minutes limit to milliseconds
-    const minutesLimitToMilliseconds: number = minutesLimit * 60 * 1000;
+    const minutesLimitToMilliseconds = minutesLimit * 60 * 1000;
 
     // Calculate the time limit for the user's balance
-    const usageTimeLimit: Date = new Date(
+    const usageTimeLimit = new Date(
       startUsageTime.getTime() + minutesLimitToMilliseconds,
     );
     return usageTimeLimit;
@@ -919,10 +796,10 @@ export class PaymentService implements OnModuleInit {
 
   private getPublicKeyFromWsClient(client: Socket): PublicKey {
     // Get handshake's headers
-    const authHeader: string = client.request.headers.authorization;
+    const authHeader = client.request.headers.authorization;
 
     // Get bearer token from headers
-    const bearerToken: string = authHeader.split(' ')[1];
+    const bearerToken = authHeader.split(' ')[1];
 
     // Encode payload from token
     const payload = this.jwtService.decode(bearerToken);
@@ -934,41 +811,41 @@ export class PaymentService implements OnModuleInit {
     userPublicKey: PublicKey,
     usageStartTime: Date,
     usageTimeLimit: Date,
-    totalPriceInRawUSDC: number,
+    priceInRawUSDC: number,
     hasRemainingHours: boolean = false, // Only for per hours payment
   ): Promise<void> {
-    const millisecondsToExecute: number =
+    const millisecondsToExecute =
       usageTimeLimit.getTime() - usageStartTime.getTime();
 
-    const taskName: string = userPublicKey.toString();
+    const taskName = userPublicKey.toString();
 
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
       // Pay for the used time
-      await this.payPerTimeThroughProgram(userPublicKey, totalPriceInRawUSDC);
-      Logger.log(
-        `User [${userPublicKey.toString()}] paid for the used time: [${totalPriceInRawUSDC}] USDC`,
-      );
-
-      // Reset hours left for paying per hours
+      // TODO: add per hours payment
       if (hasRemainingHours) {
-        await this.accountService.setPerHoursLeft(0, userPublicKey.toString());
+        await this.payPerHourThroughProgram(
+          userPublicKey,
+          priceInRawUSDC,
+          0, // Reset hours left
+        );
+      } else {
+        await this.payPerMinuteThroughProgram(userPublicKey, priceInRawUSDC);
       }
+      Logger.log(
+        `User [${userPublicKey.toString()}] paid for the used time: [${priceInRawUSDC}] USDC`,
+      );
 
       // Clear user's resources
       this.cacheManager.del(userPublicKey.toString());
       Logger.log(`User's [${userPublicKey.toString()}] cache deleted`);
-      this.accountService.setBalanceFreezingStatus(
-        false,
-        userPublicKey.toString(),
-      );
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         `payment.messages.stopPayPer${hasRemainingHours ? 'Hours' : 'Usage'}Failed`,
       );
-      const error: string = this.i18nWs(client, 'payment.errors.fundsRanOut');
+      const error = this.i18nWs(client, 'payment.errors.fundsRanOut');
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
       Logger.log(
@@ -1000,22 +877,19 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Emit error to client and disconnect him
-      const message: string = this.i18nWs(
+      const message = this.i18nWs(
         client,
         'payment.messages.errorDuringFreeHours',
       );
-      const error: string = this.i18nWs(
-        client,
-        'payment.errors.freeHoursExpired',
-      );
+      const error = this.i18nWs(client, 'payment.errors.freeHoursExpired');
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
     };
 
     // Add timeout to scheduler registry
-    const millisecondsToExecute: number = userFreeHoursLeft * 60 * 1000; // 60 seconds * 1000 milliseconds
+    const millisecondsToExecute = userFreeHoursLeft * 60 * 1000; // 60 seconds * 1000 milliseconds
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
-    const taskName: string = userPublicKey.toString();
+    const taskName = userPublicKey.toString();
 
     this.schedulerRegistry.addTimeout(taskName, timeout);
     Logger.log(
@@ -1044,16 +918,6 @@ export class PaymentService implements OnModuleInit {
       this.schedulerRegistry.deleteInterval(userPublicKey.toString());
     } catch (error) {
       Logger.warn(`Error deleting interval: [${error}]`);
-    }
-
-    // Unfreeze user's balance
-    try {
-      this.accountService.setBalanceFreezingStatus(
-        false,
-        userPublicKey.toString(),
-      );
-    } catch (error) {
-      Logger.error(`Error setting balance freezing status: [${error}]`);
     }
   }
 
@@ -1112,7 +976,7 @@ export class PaymentService implements OnModuleInit {
 
     // Define callback to notify user
     // about minutes left every minute
-    const millisecondsToNotify: number = 60 * 1000; // 60 seconds * 1000 milliseconds
+    const millisecondsToNotify = 60 * 1000; // 60 seconds * 1000 milliseconds
 
     const callback = () => {
       client.emit('minutesLeft', --minutesLimit); // Decrease minutes left by 1
@@ -1124,39 +988,18 @@ export class PaymentService implements OnModuleInit {
 
   private i18nWs(client: Socket, textToTranslate: string): string {
     // Get client's language from handshake's headers
-    const lang: string = client.handshake.headers['accept-language'] || 'en';
+    const lang = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
   }
 
   // TODO: Remove this test method
-  private async depositToTimedVault(price: number): Promise<void> {
+  private async depositToVault(price: number): Promise<void> {
     try {
       const user = Keypair.fromSecretKey(
         new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
       );
       const transaction = await this.program.methods
-        .depositToTimedVault(new anchor.BN(price))
-        .accounts({
-          user: user.publicKey,
-          token: this.USDC_TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([user])
-        .rpc();
-      console.log(transaction);
-    } catch (error) {
-      console.log(`Error: ${error}`);
-    }
-  }
-
-  // TODO: Remove this test method
-  private async depositToSubscriptionVault(price: number): Promise<void> {
-    try {
-      const user = Keypair.fromSecretKey(
-        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-      );
-      const transaction = await this.program.methods
-        .depositToSubscriptionVault(new anchor.BN(price))
+        .deposit(new anchor.BN(price))
         .accounts({
           user: user.publicKey,
           token: this.USDC_TOKEN_ADDRESS,

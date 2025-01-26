@@ -10,6 +10,7 @@ import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
+import { RefundBalanceDto } from './dto/refund-balance.dto';
 
 @ApiTags('payment')
 @UseGuards(JwtAuthGuard)
@@ -30,24 +31,8 @@ export class PaymentController {
   @Post('refund/timed-balance')
   async refundUserTimedBalance(
     @JwtPublicKey() publicKey: string,
+    @Body() dto: RefundBalanceDto,
   ): Promise<string> {
-    return await this.paymentService.refundUserTimedBalance(publicKey);
-  }
-
-  @ApiOperation({
-    summary: 'Refunds user subscription balance. Fetching publicKey from JWT',
-  })
-  @ApiResponse({
-    status: 201,
-    description: `Returns transaction's signature`,
-    type: String,
-  })
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.CREATED)
-  @Post('refund/subscription-balance')
-  async refundUserSubscriptionBalance(
-    @JwtPublicKey() publicKey: string,
-  ): Promise<string> {
-    return await this.paymentService.refundUserSubscriptionBalance(publicKey);
+    return await this.paymentService.refundUserBalance(publicKey, dto.amount);
   }
 }
