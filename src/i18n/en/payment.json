@@ -8,7 +8,8 @@
     "fundsRanOut": "Funds ran out",
     "freeHoursExpired": "Free hours expired",
     "fetchUserInfoFailed": "Failed to fetch user info",
-    "balanceFreezingFailed": "Failed to freeze balance"
+    "balanceFreezingFailed": "Failed to freeze balance",
+    "balanceUnfreezingFailed": "Failed to unfreeze balance"
   },
   "messages": {
     "timedBalanceRefundFailed": "Timed balance refunding failed",

@@ -13,13 +13,7 @@ import {
   setProvider,
   Wallet,
 } from '@coral-xyz/anchor';
-import {
-  Account,
-  clusterApiUrl,
-  Connection,
-  Keypair,
-  PublicKey,
-} from '@solana/web3.js';
+import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
 import 'dotenv/config';
 import * as idl from './interfaces/deposit_program.json';
 import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
@@ -81,7 +75,13 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    // this.depositToVault(this.USDC_PRICE_PER_MINUTE);
+    this.depositToVault(this.USDC_PRICE_PER_HOUR);
+    this.payPerMinuteThroughProgram(
+      Keypair.fromSecretKey(
+        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
+      ).publicKey,
+      1,
+    );
   }
 
   onModuleInit() {
@@ -353,7 +353,12 @@ export class PaymentService implements OnModuleInit {
       // Withdraw money from user using program
       if (totalPrice !== 0) {
         await this.payPerMinuteThroughProgram(userPublicKey, totalPrice);
+        return;
       }
+
+      // Unfreeze user's balance if no money was withdrawn
+      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      Logger.log(`User's [${userPublicKey.toString()}] balance is unfrozen`);
     } catch (error) {
       // Disconnect client if error occurs
       const message = this.i18nWs(
@@ -770,6 +775,29 @@ export class PaymentService implements OnModuleInit {
       );
     }
   }
+
+  private async unfreezeBalanceThroughProgram(
+    client: Socket,
+    userPublicKey: PublicKey,
+  ): Promise<string> {
+    try {
+      const transaction = await this.program.methods
+        .unfreezeBalance()
+        .accounts({
+          user: userPublicKey,
+        })
+        .signers([this.master])
+        .rpc();
+      return transaction;
+    } catch (error) {
+      Logger.error(
+        `Error unfreezing user's [${userPublicKey.toString()}] balance: [${error}]`,
+      );
+      throw new Error(
+        this.i18nWs(client, 'payment.errors.balanceUnfreezingFailed'),
+      );
+    }
+  }
   private async getUserVaultBalance(
     userTimedVaultAddress: PublicKey,
   ): Promise<number> {
@@ -822,7 +850,6 @@ export class PaymentService implements OnModuleInit {
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
       // Pay for the used time
-      // TODO: add per hours payment
       if (hasRemainingHours) {
         await this.payPerHourThroughProgram(
           userPublicKey,
