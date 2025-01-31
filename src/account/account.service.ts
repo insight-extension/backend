@@ -57,22 +57,6 @@ export class AccountService {
     });
   }
 
-  async setPerHoursLeft(hours: number, userPublicKey: string): Promise<void> {
-    await this.prisma.account.update({
-      where: {
-        publicKey: userPublicKey,
-      },
-      data: {
-        perHoursLeft: hours,
-      },
-    });
-  }
-
-  async getPerHoursLeft(userPublicKey: string): Promise<number> {
-    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
-    return account.perHoursLeft;
-  }
-
   async getFreeHoursInfo(
     userPublicKey: string,
   ): Promise<GetFreeHoursInfoResponseDto> {

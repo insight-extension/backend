@@ -48,8 +48,8 @@ export class PaymentService implements OnModuleInit {
     SubscriptionPrice.PER_USAGE * 1_000_000;
   private readonly USDC_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
 
-  // Default free hours for new users
-  private readonly USER_DEFAULT_FREE_HOURS: number = 3;
+  // Default free hours for new users in seconds
+  private readonly USER_DEFAULT_FREE_HOURS: number = 3 * 60 * 60; // hours * seconds * milliseconds
 
   constructor(
     private readonly jwtService: JwtService,
@@ -57,7 +57,6 @@ export class PaymentService implements OnModuleInit {
     private readonly i18n: I18nService,
     // schedulerRegistry<key: string(publicKey), value: Timeout>
     private readonly schedulerRegistry: SchedulerRegistry,
-    // TODO: resolve cache singleton problems
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {
@@ -81,6 +80,14 @@ export class PaymentService implements OnModuleInit {
         new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
       ).publicKey,
       1,
+    );
+
+    this.payPerHourThroughProgram(
+      Keypair.fromSecretKey(
+        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
+      ).publicKey,
+      1,
+      0,
     );
   }
 
@@ -269,11 +276,8 @@ export class PaymentService implements OnModuleInit {
       // Determine the expiration time of the user's balance
       const usageTimeLimit = this.getTimeLimitPerMinutes(
         usageStartTime,
-        userVaultBalance,
+        minutesLimit,
       );
-
-      // TODO: set interval to notify user about minutes left
-      this.setUsageNotifyingInterval(client, userPublicKey, minutesLimit);
 
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       await this.setBalanceExpirationTimeout(
@@ -412,6 +416,7 @@ export class PaymentService implements OnModuleInit {
         userFreeHoursLeft = this.USER_DEFAULT_FREE_HOURS;
       }
 
+      // If user has no free hours left and no renew, throw an error
       if (userFreeHoursLeft === 0) {
         throw new Error(
           this.i18nWs(client, 'payment.errors.noFreeHoursAvailable'),
@@ -467,24 +472,23 @@ export class PaymentService implements OnModuleInit {
       const timeDifferenceInMilliseconds =
         usageEndTime.getTime() - usageStartTime.getTime();
 
-      const ONE_HOUR_IN_MILLISECONDS = 60 * 60 * 1000; // minutes * seconds * milliseconds
-
+      // Get user's free hours left in seconds
       const userFreeHoursLeft = await this.accountService.getFreeHours(
         userPublicKey.toString(),
       );
 
-      const totalUsedTime =
-        timeDifferenceInMilliseconds / ONE_HOUR_IN_MILLISECONDS;
+      // Convert time difference to seconds
+      const totalUsedTime = timeDifferenceInMilliseconds / 1000; // 1000 ms
 
-      const remainingFreeHours = userFreeHoursLeft - totalUsedTime;
+      const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
       await this.accountService.setFreeHours(
-        remainingFreeHours,
+        remainingFreeHoursInSeconds,
         userPublicKey.toString(),
       );
       Logger.log(
-        `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHours}]`,
+        `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSeconds}]`,
       );
 
       this.cacheManager.del(userPublicKey.toString());
@@ -528,16 +532,25 @@ export class PaymentService implements OnModuleInit {
         userTimedVaultAddress,
       );
 
-      // Get user's hours left in decimal hours
-      const perHoursLeft = await this.accountService.getPerHoursLeft(
-        userPublicKey.toString(),
+      // Get left hours in seconds
+      const userInfoAddress = this.getUserInfoAddress(
+        AccountType.INFO,
+        userPublicKey,
       );
+      const userInfo =
+        await this.program.account.userInfo.fetch(userInfoAddress);
+
+      if (!userInfo) {
+        throw new Error(this.i18nWs(client, 'payment.errors.userInfoNotFound'));
+      }
+      const perHoursLeft: number = userInfo.perHourLeft.toNumber();
+
       const hasRemainingHours = perHoursLeft > 0;
 
       // Check if user have not used free hours from last using
       // or sufficient balance to buy an hour
       if (
-        perHoursLeft === 0 &&
+        !hasRemainingHours &&
         userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
       ) {
         throw new Error(
@@ -562,18 +575,20 @@ export class PaymentService implements OnModuleInit {
       );
 
       const availableTimeInMilliseconds: number =
-        availableTimeFromBalance * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+        availableTimeFromBalance * 60 * 60 * 1000; // minutes * seconds * milliseconds
 
+      console.log('availableTimeInMilliseconds', availableTimeInMilliseconds);
       let usageTimeLimit = new Date(Date.now() + availableTimeInMilliseconds);
-
+      console.log('usageTimeLimit1', usageTimeLimit);
       // Recalculate the time limit for the user's balance if free hours are available
       if (perHoursLeft > 0) {
-        const perHoursLeftInMilliseconds = perHoursLeft * 60 * 60 * 1000; // 60 minutes * 60 seconds * 1000 milliseconds
+        const perHoursLeftInMilliseconds = perHoursLeft * 1000; // 1000 milliseconds
 
         // Add hours left to the available time
         usageTimeLimit = new Date(
           Date.now() + availableTimeInMilliseconds + perHoursLeftInMilliseconds,
         );
+        console.log('usageTimeLimit2', usageTimeLimit);
       }
 
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
@@ -583,7 +598,7 @@ export class PaymentService implements OnModuleInit {
         usageStartTime,
         usageTimeLimit,
         userTimedVaultBalance,
-        hasRemainingHours,
+        true, // For per hours payment
       );
       Logger.log(
         `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
@@ -611,10 +626,19 @@ export class PaymentService implements OnModuleInit {
   private async stopPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const usageEndTime = new Date();
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
+      // Check if user has usage start time
+      // For situations when timeouts are executed
+      if (!usageStartTime) {
+        Logger.warn(
+          `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
+        );
+        return;
+      }
+
+      const usageEndTime = new Date();
 
       // Calculate the total used time in milliseconds
       const usageTimeInMilliseconds =
@@ -626,18 +650,28 @@ export class PaymentService implements OnModuleInit {
       );
       const userInfo =
         await this.program.account.userInfo.fetch(userInfoAddress);
-      const perHoursLeft: number = userInfo.perHourLeft;
+
+      if (!userInfo) {
+        throw new Error(this.i18nWs(client, 'payment.errors.userInfoNotFound'));
+      }
+
+      const perHoursLeft: number = userInfo.perHourLeft.toNumber();
+      const perHoursLeftInHours = perHoursLeft / (60 * 60); // 60 seconds * 60 minutes
 
       const usageTimeInHours = usageTimeInMilliseconds / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
-      const totalUsageInHours = perHoursLeft - usageTimeInHours;
+      const totalUsageInHours = perHoursLeftInHours - usageTimeInHours;
 
       // If totalUsage is negative, user has used more remaining hours than he has left
       if (totalUsageInHours < 0) {
-        // Calculate the total usage that should be paid (without hours left)
+        // Calculate the total usage that should be paid
+        // Get the absolute value of a number and then round it up
         const totalHoursToPay = Math.ceil(Math.abs(totalUsageInHours));
 
         // Set per hours left after the usage
         const newPerHoursLeft = totalHoursToPay - Math.abs(totalUsageInHours);
+        console.log('newPerHoursLeft', newPerHoursLeft);
+        const newPerHoursLeftInSeconds = newPerHoursLeft * 60 * 60; // 60 minutes * 60 seconds
+        console.log('newPerHoursLeftInSeconds', newPerHoursLeftInSeconds);
 
         // Calculate the total price for the used hours
         const totalPriceInRawUSDC = totalHoursToPay * this.USDC_PRICE_PER_HOUR;
@@ -646,20 +680,21 @@ export class PaymentService implements OnModuleInit {
         await this.payPerHourThroughProgram(
           userPublicKey,
           totalPriceInRawUSDC,
-          newPerHoursLeft,
+          newPerHoursLeftInSeconds,
         );
         Logger.log(
-          `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeft}`,
+          `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeftInSeconds} seconds`,
         );
         Logger.log(
           `User [${userPublicKey.toString()}] paid [${totalPriceInRawUSDC}] USDC for [${totalHoursToPay}] used hours`,
         );
       } else {
         // Set per hours left after the usage
+        const totalUsageInSeconds = totalUsageInHours * 60 * 60; // 60 minutes * 60 seconds
         await this.payPerHourThroughProgram(
           userPublicKey,
           0, // No new hours to pay
-          totalUsageInHours,
+          totalUsageInSeconds,
         );
         Logger.log(
           `User's [${userPublicKey.toString()}] per hours left: [${totalUsageInHours}]`,
@@ -850,6 +885,7 @@ export class PaymentService implements OnModuleInit {
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
       // Pay for the used time
+      // Depending on the selected payment method
       if (hasRemainingHours) {
         await this.payPerHourThroughProgram(
           userPublicKey,
@@ -875,6 +911,7 @@ export class PaymentService implements OnModuleInit {
       const error = this.i18nWs(client, 'payment.errors.fundsRanOut');
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
+
       Logger.log(
         `User's [${userPublicKey.toString()}] balance expired. Timeout executed`,
       );
@@ -939,13 +976,6 @@ export class PaymentService implements OnModuleInit {
     } catch (error) {
       Logger.warn(`Error deleting timeout: [${error}]`);
     }
-
-    // Remove user's interval
-    try {
-      this.schedulerRegistry.deleteInterval(userPublicKey.toString());
-    } catch (error) {
-      Logger.warn(`Error deleting interval: [${error}]`);
-    }
   }
 
   // Return true if free hours are renewed successfully or false otherwise
@@ -993,31 +1023,31 @@ export class PaymentService implements OnModuleInit {
     client.emit('error', errorToEmit.getResponse());
   }
 
-  private async setUsageNotifyingInterval(
-    client: Socket,
-    publicKey: PublicKey,
-    minutesLimit: number,
-  ): Promise<void> {
-    // Initial minutes left notification
-    client.emit('minutesLeft', minutesLimit);
-
-    // Define callback to notify user
-    // about minutes left every minute
-    const millisecondsToNotify = 60 * 1000; // 60 seconds * 1000 milliseconds
-
-    const callback = () => {
-      client.emit('minutesLeft', --minutesLimit); // Decrease minutes left by 1
-    };
-
-    const interval = setInterval(callback, millisecondsToNotify);
-    this.schedulerRegistry.addInterval(publicKey.toString(), interval);
-  }
-
   private i18nWs(client: Socket, textToTranslate: string): string {
     // Get client's language from handshake's headers
     const lang = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
   }
+
+  // private async setUsageNotifyingInterval(
+  //   client: Socket,
+  //   publicKey: PublicKey,
+  //   minutesLimit: number,
+  // ): Promise<void> {
+  //   // Initial minutes left notification
+  //   client.emit('minutesLeft', minutesLimit);
+
+  //   // Define callback to notify user
+  //   // about minutes left every minute
+  //   const millisecondsToNotify = 60 * 1000; // 60 seconds * 1000 milliseconds
+
+  //   const callback = () => {
+  //     client.emit('minutesLeft', --minutesLimit); // Decrease minutes left by 1
+  //   };
+
+  //   const interval = setInterval(callback, millisecondsToNotify);
+  //   this.schedulerRegistry.addInterval(publicKey.toString(), interval);
+  // }
 
   // TODO: Remove this test method
   private async depositToVault(price: number): Promise<void> {

@@ -9,7 +9,8 @@
     "freeHoursExpired": "Free hours expired",
     "fetchUserInfoFailed": "Failed to fetch user info",
     "balanceFreezingFailed": "Failed to freeze balance",
-    "balanceUnfreezingFailed": "Failed to unfreeze balance"
+    "balanceUnfreezingFailed": "Failed to unfreeze balance",
+    "userInfoNotFound": "Failed to fetch user info"
   },
   "messages": {
     "timedBalanceRefundFailed": "Timed balance refunding failed",
