@@ -53,33 +53,39 @@ export class FaucetService {
     this.program = new Program(idl as InsightFaucet, this.anchorProvider);
 
     // Configure the faucet
-    this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
+    // this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
   }
 
   async claim(publicKey: string, ip: string): Promise<string> {
     try {
       // Check if the IP address has already claimed the faucet
-      const cachedRenewDate = await this.cacheManager.get(ip);
+      const cachedRenewDate: Date | undefined = await this.cacheManager.get(ip);
+
+      // If the IP address has already claimed the faucet, throw an error
       if (cachedRenewDate) {
+        const availableInMs = cachedRenewDate.getTime() - Date.now();
+        const availableInHours = Math.ceil(availableInMs / (60 * 60 * 1000)); // min * sec * ms
         throw new ForbiddenException(
           this.i18n.t('faucet.alreadyClaimed', {
-            args: { date: cachedRenewDate },
+            args: { availableInHours },
           }),
         );
       }
 
       // Claim the faucet and return the transaction signature
-      const transaction = await this.claimThroughProgram(publicKey);
-      Logger.log(`Faucet has been claimed: [${transaction}]`);
+      const transaction = await this.claimUsdcThroughProgram(publicKey);
+      Logger.log(`[${publicKey}] claimed the faucet: [${transaction}]`);
+
+      const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+      // Set the date then renew will be available
+      const renewDate = new Date(Date.now() + ONE_DAY_IN_MS);
 
       // Set the IP address to limit claiming from the faucet
-      const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
-      const renewDate = new Date(Date.now() + ONE_DAY_IN_MS);
       await this.cacheManager.set(ip, renewDate, ONE_DAY_IN_MS);
       Logger.log(
         `IP address has been set to cache for ip: [${ip}] public key: [${publicKey}]`,
       );
-
       return transaction;
     } catch (error) {
       Logger.warn('Failed to claim a faucet: ', error);
@@ -87,7 +93,7 @@ export class FaucetService {
     }
   }
 
-  private async claimThroughProgram(publicKey: string): Promise<string> {
+  private async claimUsdcThroughProgram(publicKey: string): Promise<string> {
     try {
       const tx = await this.program.methods
         .claim()
@@ -105,10 +111,11 @@ export class FaucetService {
     }
   }
 
-  private async configureFaucet(RawSumToClaimPerDay: number): Promise<string> {
+  // Configure the faucet sum that can be claimed per day
+  private async configureFaucet(rawSumToClaimPerDay: number): Promise<string> {
     try {
       const tx = await this.program.methods
-        .initialize(new anchor.BN(RawSumToClaimPerDay))
+        .initialize(new anchor.BN(rawSumToClaimPerDay))
         .accounts({
           token: this.USDC_TOKEN_ADDRESS,
           tokenProgram: TOKEN_PROGRAM_ID,

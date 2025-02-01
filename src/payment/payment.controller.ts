@@ -8,7 +8,12 @@ import {
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
 import { RefundBalanceDto } from './dto/refund-balance.dto';
 
@@ -19,17 +24,19 @@ export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @ApiOperation({
-    summary: 'Refunds user timed balance. Fetching publicKey from JWT',
+    summary:
+      'Refunds user timed balance. Body is empty, gets publicKey from JWT',
   })
   @ApiResponse({
     status: 201,
     description: `Returns transaction's signature`,
     type: String,
   })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  @Post('refund/timed-balance')
-  async refundUserTimedBalance(
+  @Post('refund-balance')
+  async refundUserBalance(
     @JwtPublicKey() publicKey: string,
     @Body() dto: RefundBalanceDto,
   ): Promise<string> {

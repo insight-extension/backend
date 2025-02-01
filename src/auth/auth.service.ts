@@ -19,12 +19,12 @@ import { JwtExpire } from './constants/jwt-expire.enum';
 @Injectable()
 export class AuthService {
   constructor(
-    private accountService: AccountService,
-    private jwtService: JwtService,
+    private readonly accountService: AccountService,
+    private readonly jwtService: JwtService,
     private readonly i18n: I18nService,
     // cacheManager<key: string(publicKey), value: string(nonce)>
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
-  ) {}
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+  ) { }
 
   // Validate signed signature from client and return jwt tokens
   async verify(dto: VerifyDto): Promise<Verify> {
@@ -39,8 +39,10 @@ export class AuthService {
       this.accountService.saveAccount(account);
     }
     return {
-      accessToken: this.generateAccessToken({ publicKey: account.publicKey }),
-      refreshToken: this.generateRefreshToken({
+      accessToken: await this.generateAccessToken({
+        publicKey: account.publicKey,
+      }),
+      refreshToken: await this.generateRefreshToken({
         publicKey: account.publicKey,
       }),
     };
@@ -60,6 +62,7 @@ export class AuthService {
   // Refresh access and refresh tokens by providing refresh token
   async refreshToken(refreshToken: string): Promise<Verify> {
     try {
+      console.log(refreshToken)
       const payload = this.jwtService.verify(refreshToken, {
         secret: process.env.JWT_SECRET,
       });
@@ -73,22 +76,22 @@ export class AuthService {
       const newPayload = { publicKey: payload.publicKey };
 
       return {
-        accessToken: this.generateAccessToken(newPayload),
-        refreshToken: this.generateRefreshToken(newPayload),
+        accessToken: await this.generateAccessToken(newPayload),
+        refreshToken: await this.generateRefreshToken(newPayload),
       };
     } catch {
       throw new Error(this.i18n.t('auth.invalidRefreshToken'));
     }
   }
 
-  private generateAccessToken(payload: any): string {
-    return this.jwtService.sign(payload, {
+  private async generateAccessToken(payload: any): Promise<string> {
+    return await this.jwtService.signAsync(payload, {
       expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
     });
   }
 
-  private generateRefreshToken(payload: any): string {
-    return this.jwtService.sign(payload, {
+  private async generateRefreshToken(payload: any): Promise<string> {
+    return await this.jwtService.signAsync(payload, {
       expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
     });
   }
@@ -132,7 +135,7 @@ export class AuthService {
         nonce: existingNonce,
       };
     }
-    const nonce: string = this.generateNonce();
+    const nonce = this.generateNonce();
 
     // Store nonce for comparing it later
     await this.cacheManager.set(dto.publicKey, nonce);
@@ -144,7 +147,7 @@ export class AuthService {
   }
 
   private generateNonce(): string {
-    const payload: string = randomBytes(32).toString('hex');
+    const payload = randomBytes(32).toString('hex');
     return `insight: ${payload}`;
   }
 }

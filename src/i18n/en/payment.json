@@ -2,7 +2,6 @@
   "errors": {
     "insufficientBalance": "Insufficient balance",
     "balanceIsFrozen":"Balance is frozen",
-    "noBalanceToRefund": "No balance to refund",
     "invalidSubscriptionType": "Invalid subscription type",
     "noFreeHoursAvailable": "Free hours are not available",
     "fundsRanOut": "Funds ran out",

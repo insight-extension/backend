@@ -127,9 +127,9 @@ export class PaymentService implements OnModuleInit {
         userTimedVaultAddress,
       );
 
-      // Check if user has balance to refund
-      if (userVaultBalance === 0) {
-        throw new Error(this.i18n.t('payment.errors.noBalanceToRefund'));
+      // Check if user has sufficient balance to refund
+      if (userVaultBalance < amount) {
+        throw new Error(this.i18n.t('payment.errors.insufficientBalance'));
       }
 
       // Refund user's balance
@@ -520,7 +520,7 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const userTimedInfoAddress = this.getUserInfoAddress(
+      const userInfoAddress = this.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
       );
@@ -528,7 +528,7 @@ export class PaymentService implements OnModuleInit {
       // ATA address where user's balance is stored
       const userTimedVaultAddress = await getAssociatedTokenAddress(
         this.USDC_TOKEN_ADDRESS,
-        userTimedInfoAddress,
+        userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
@@ -537,10 +537,6 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Get left hours in seconds
-      const userInfoAddress = this.getUserInfoAddress(
-        AccountType.INFO,
-        userPublicKey,
-      );
       const userInfo =
         await this.program.account.userInfo.fetch(userInfoAddress);
 
@@ -679,7 +675,7 @@ export class PaymentService implements OnModuleInit {
         // Set per hours left after the usage
         const newPerHoursLeft = totalHoursToPay - Math.abs(totalUsageInHours);
 
-        const newPerHoursLeftInSeconds = newPerHoursLeft * 60 * 60; // 60 minutes * 60 seconds
+        const newPerHoursLeftInSeconds = Math.round(newPerHoursLeft * 60 * 60); // 60 minutes * 60 seconds
 
         // Calculate the total price for the used hours
         const totalPriceInRawUSDC = totalHoursToPay * this.USDC_PRICE_PER_HOUR;
@@ -698,7 +694,7 @@ export class PaymentService implements OnModuleInit {
         );
       } else {
         // Set per hours left after the usage
-        const totalUsageInSeconds = totalUsageInHours * 60 * 60; // 60 minutes * 60 seconds
+        const totalUsageInSeconds = Math.round(totalUsageInHours * 60 * 60); // 60 minutes * 60 seconds
         await this.payPerHourThroughProgram(
           userPublicKey,
           0, // No new hours to pay
@@ -1044,26 +1040,6 @@ export class PaymentService implements OnModuleInit {
     const lang = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
   }
-
-  // private async setUsageNotifyingInterval(
-  //   client: Socket,
-  //   publicKey: PublicKey,
-  //   minutesLimit: number,
-  // ): Promise<void> {
-  //   // Initial minutes left notification
-  //   client.emit('minutesLeft', minutesLimit);
-
-  //   // Define callback to notify user
-  //   // about minutes left every minute
-  //   const millisecondsToNotify = 60 * 1000; // 60 seconds * 1000 milliseconds
-
-  //   const callback = () => {
-  //     client.emit('minutesLeft', --minutesLimit); // Decrease minutes left by 1
-  //   };
-
-  //   const interval = setInterval(callback, millisecondsToNotify);
-  //   this.schedulerRegistry.addInterval(publicKey.toString(), interval);
-  // }
 
   // TODO: Remove this test method
   private async depositToVault(price: number): Promise<void> {
