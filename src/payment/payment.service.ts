@@ -74,21 +74,21 @@ export class PaymentService implements OnModuleInit {
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
     // TODO: remove
-    this.depositToVault(this.USDC_PRICE_PER_HOUR);
-    this.payPerMinuteThroughProgram(
-      Keypair.fromSecretKey(
-        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-      ).publicKey,
-      1,
-    );
+    //this.depositToVault(this.USDC_PRICE_PER_HOUR);
+    // this.payPerMinuteThroughProgram(
+    //   Keypair.fromSecretKey(
+    //     new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
+    //   ).publicKey,
+    //   1,
+    // );
 
-    this.payPerHourThroughProgram(
-      Keypair.fromSecretKey(
-        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-      ).publicKey,
-      1,
-      0,
-    );
+    // this.payPerHourThroughProgram(
+    //   Keypair.fromSecretKey(
+    //     new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
+    //   ).publicKey,
+    //   1,
+    //   0,
+    // );
   }
 
   onModuleInit() {
@@ -577,9 +577,8 @@ export class PaymentService implements OnModuleInit {
       const availableTimeInMilliseconds: number =
         availableTimeFromBalance * 60 * 60 * 1000; // minutes * seconds * milliseconds
 
-      console.log('availableTimeInMilliseconds', availableTimeInMilliseconds);
       let usageTimeLimit = new Date(Date.now() + availableTimeInMilliseconds);
-      console.log('usageTimeLimit1', usageTimeLimit);
+
       // Recalculate the time limit for the user's balance if free hours are available
       if (perHoursLeft > 0) {
         const perHoursLeftInMilliseconds = perHoursLeft * 1000; // 1000 milliseconds
@@ -588,7 +587,6 @@ export class PaymentService implements OnModuleInit {
         usageTimeLimit = new Date(
           Date.now() + availableTimeInMilliseconds + perHoursLeftInMilliseconds,
         );
-        console.log('usageTimeLimit2', usageTimeLimit);
       }
 
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
@@ -669,9 +667,8 @@ export class PaymentService implements OnModuleInit {
 
         // Set per hours left after the usage
         const newPerHoursLeft = totalHoursToPay - Math.abs(totalUsageInHours);
-        console.log('newPerHoursLeft', newPerHoursLeft);
+
         const newPerHoursLeftInSeconds = newPerHoursLeft * 60 * 60; // 60 minutes * 60 seconds
-        console.log('newPerHoursLeftInSeconds', newPerHoursLeftInSeconds);
 
         // Calculate the total price for the used hours
         const totalPriceInRawUSDC = totalHoursToPay * this.USDC_PRICE_PER_HOUR;
