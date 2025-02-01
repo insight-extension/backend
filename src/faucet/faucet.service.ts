@@ -32,7 +32,7 @@ export class FaucetService {
   private readonly USDC_TOKEN_ADDRESS = new PublicKey(
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
-  private readonly RAW_SUM_TO_CLAIM_PER_DAY = 5_000_000;
+  private readonly RAW_SUM_TO_CLAIM_PER_DAY = 10_000_000;
   constructor(
     private readonly i18n: I18nService,
     // cacheManager<key: string(ip), value: Date(renewDate)>
@@ -53,7 +53,7 @@ export class FaucetService {
     this.program = new Program(idl as InsightFaucet, this.anchorProvider);
 
     // Configure the faucet
-    // this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
+    this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
   }
 
   async claim(publicKey: string, ip: string): Promise<string> {
@@ -87,7 +87,7 @@ export class FaucetService {
     }
   }
 
-  async claimThroughProgram(publicKey: string): Promise<string> {
+  private async claimThroughProgram(publicKey: string): Promise<string> {
     try {
       const tx = await this.program.methods
         .claim()
@@ -105,7 +105,7 @@ export class FaucetService {
     }
   }
 
-  async configureFaucet(RawSumToClaimPerDay: number): Promise<string> {
+  private async configureFaucet(RawSumToClaimPerDay: number): Promise<string> {
     try {
       const tx = await this.program.methods
         .initialize(new anchor.BN(RawSumToClaimPerDay))

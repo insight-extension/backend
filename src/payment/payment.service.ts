@@ -31,6 +31,7 @@ import { I18nService } from 'nestjs-i18n';
 import { AccountType } from './constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { DepositProgram } from './interfaces/deposit_program';
+import { use } from 'passport';
 
 @Injectable()
 export class PaymentService implements OnModuleInit {
@@ -165,9 +166,6 @@ export class PaymentService implements OnModuleInit {
         case SubscriptionType.PER_USAGE:
           await this.startPayingPerMinutes(client);
           break;
-        case SubscriptionType.PER_MONTH:
-          //await this.startPayingWithSubscription(client);
-          break;
         case SubscriptionType.FREE_TRIAL:
           await this.startFreeHoursUsing(client);
           break;
@@ -200,8 +198,6 @@ export class PaymentService implements OnModuleInit {
       switch (subscriptionType) {
         case SubscriptionType.PER_USAGE:
           await this.stopPayingPerMinutes(client);
-          break;
-        case SubscriptionType.PER_MONTH:
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.stopFreeHoursUsing(client);
@@ -304,8 +300,15 @@ export class PaymentService implements OnModuleInit {
 
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      await this.clearUserResources(userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      try {
+        await this.clearUserResources(userPublicKey);
+        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      } catch (error) {
+        Logger.error(
+          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
+        );
+      }
     }
   }
 
@@ -491,6 +494,7 @@ export class PaymentService implements OnModuleInit {
         `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSeconds}]`,
       );
 
+      // TODO: check for release function
       this.cacheManager.del(userPublicKey.toString());
       Logger.log(
         `Cache deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
@@ -615,9 +619,16 @@ export class PaymentService implements OnModuleInit {
       client.disconnect();
 
       // Release resources if error occurs
-      const userPublicKey = this.getPublicKeyFromWsClient(client);
-      await this.clearUserResources(userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      try {
+        await this.clearUserResources(userPublicKey);
+        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      } catch (error) {
+        Logger.error(
+          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
+        );
+      }
     }
   }
 
@@ -714,7 +725,15 @@ export class PaymentService implements OnModuleInit {
 
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      await this.clearUserResources(userPublicKey);
+      try {
+        await this.clearUserResources(userPublicKey);
+        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      } catch (error) {
+        Logger.error(
+          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
+        );
+      }
     }
   }
 
