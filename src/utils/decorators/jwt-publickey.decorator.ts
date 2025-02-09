@@ -25,7 +25,6 @@ export const JwtPublicKey = createParamDecorator(
 
       const jwtService = new JwtService();
       const payload: any = jwtService.decode(token);
-
       return payload.publicKey;
     } catch (error) {
       throw new UnauthorizedException('JWT decoding failed: ' + error.message);

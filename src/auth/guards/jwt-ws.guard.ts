@@ -32,7 +32,7 @@ export class WsJwtGuard {
       }
 
       // Get payload from encoded token
-      const payload = this.jwtService.verify(bearerToken, {
+      const payload = await this.jwtService.verifyAsync(bearerToken, {
         secret: process.env.JWT_SECRET,
       });
 

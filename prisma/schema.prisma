@@ -11,8 +11,6 @@ model Account {
   id                 String    @id @default(uuid())
   publicKey          String    @unique
   createdAt          DateTime  @default(now())
-  isBalanceFrozen    Boolean   @default(false)
-  freeHoursLeft      Float     @default(3)
+  freeHoursLeft      Int       @default(108000) // 3 hours in seconds
   freeHoursStartDate DateTime?
-  perHoursLeft       Float     @default(0)
 }

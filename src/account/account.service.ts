@@ -22,25 +22,6 @@ export class AccountService {
     });
   }
 
-  async getBalanceFreezingStatus(userPublicKey: string): Promise<boolean> {
-    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
-    return account.isBalanceFrozen;
-  }
-
-  async setBalanceFreezingStatus(
-    status: boolean,
-    userPublicKey: string,
-  ): Promise<void> {
-    await this.prisma.account.update({
-      where: {
-        publicKey: userPublicKey,
-      },
-      data: {
-        isBalanceFrozen: status,
-      },
-    });
-  }
-
   async getFreeHours(userPublicKey: string): Promise<number> {
     const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.freeHoursLeft;
@@ -74,22 +55,6 @@ export class AccountService {
         freeHoursStartDate: newDate,
       },
     });
-  }
-
-  async setPerHoursLeft(hours: number, userPublicKey: string): Promise<void> {
-    await this.prisma.account.update({
-      where: {
-        publicKey: userPublicKey,
-      },
-      data: {
-        perHoursLeft: hours,
-      },
-    });
-  }
-
-  async getPerHoursLeft(userPublicKey: string): Promise<number> {
-    const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
-    return account.perHoursLeft;
   }
 
   async getFreeHoursInfo(

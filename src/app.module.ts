@@ -7,6 +7,7 @@ import { AccountModule } from 'src/account/account.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { PaymentModule } from './payment/payment.module';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
+import { FaucetModule } from './faucet/faucet.module';
 import * as path from 'path';
 
 @Module({
@@ -35,6 +36,7 @@ import * as path from 'path';
     AuthModule,
     TranslationModule,
     PaymentModule,
+    FaucetModule,
   ],
   providers: [
     TranslationModule,
