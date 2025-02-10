@@ -163,13 +163,13 @@ export class PaymentService implements OnModuleInit {
 
       // Start payment method based on subscription type
       switch (subscriptionType) {
-        case SubscriptionType.PER_USAGE:
+        case SubscriptionType.PER_MINUTE:
           await this.startPayingPerMinutes(client);
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.startFreeHoursUsing(client);
           break;
-        case SubscriptionType.PER_HOURS:
+        case SubscriptionType.PER_HOUR:
           await this.startPayingPerHours(client);
           break;
         default:
@@ -196,13 +196,13 @@ export class PaymentService implements OnModuleInit {
 
       // Stop payment method based on subscription type
       switch (subscriptionType) {
-        case SubscriptionType.PER_USAGE:
+        case SubscriptionType.PER_MINUTE:
           await this.stopPayingPerMinutes(client);
           break;
         case SubscriptionType.FREE_TRIAL:
           await this.stopFreeHoursUsing(client);
           break;
-        case SubscriptionType.PER_HOURS:
+        case SubscriptionType.PER_HOUR:
           await this.stopPayingPerHours(client);
           break;
         default:
