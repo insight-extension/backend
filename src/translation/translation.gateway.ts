@@ -18,12 +18,11 @@ import { PaymentService } from 'src/payment/payment.service';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
-  ) {}
+  ) { }
 
   @WebSocketServer()
   private server: Server;

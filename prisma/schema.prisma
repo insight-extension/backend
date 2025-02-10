@@ -11,6 +11,6 @@ model Account {
   id                 String    @id @default(uuid())
   publicKey          String    @unique
   createdAt          DateTime  @default(now())
-  freeHoursLeft      Int       @default(108000) // 3 hours in seconds
+  freeHoursLeft      Int       @default(10800) // 3 hours in seconds
   freeHoursStartDate DateTime?
 }

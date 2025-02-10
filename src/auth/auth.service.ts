@@ -62,7 +62,6 @@ export class AuthService {
   // Refresh access and refresh tokens by providing refresh token
   async refreshToken(refreshToken: string): Promise<Verify> {
     try {
-      console.log(refreshToken)
       const payload = this.jwtService.verify(refreshToken, {
         secret: process.env.JWT_SECRET,
       });

@@ -381,6 +381,7 @@ export class PaymentService implements OnModuleInit {
   private async startFreeHoursUsing(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
+      Logger.log(`Starting free hours using for [${userPublicKey.toString()}]`);
 
       // Get user's free hours start date
       let freeHoursStartDate: Date | null =
@@ -481,7 +482,7 @@ export class PaymentService implements OnModuleInit {
       );
 
       // Convert time difference to seconds
-      const totalUsedTime = timeDifferenceInMilliseconds / 1000; // 1000 ms
+      const totalUsedTime = Math.round(timeDifferenceInMilliseconds / 1000); // 1000 ms
 
       const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
 
@@ -520,6 +521,7 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
+      Logger.log(`Starting pay per hours for [${userPublicKey.toString()}]`);
       const userInfoAddress = this.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
