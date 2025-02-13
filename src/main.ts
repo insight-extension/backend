@@ -1,24 +1,28 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as fs from 'fs'; // Import the 'fs' module
 import path from 'path';
 import 'dotenv/config';
+import { Logger } from 'nestjs-pino';
 
 async function bootstrap() {
   // SSL setup
-  // const httpsOptions = {
-  //   key: fs.readFileSync(process.env.PRIVATE_KEY_PATH),
-  //   cert: fs.readFileSync(process.env.CERTIFICATE_PATH),
-  // };
+  let httpsOptions = null;
+  if (process.env.NODE_ENV === 'production') {
+    httpsOptions = {
+      key: fs.readFileSync(process.env.PRIVATE_KEY_PATH),
+      cert: fs.readFileSync(process.env.CERTIFICATE_PATH),
+    };
+  }
 
-  const app = await NestFactory.create(
-    AppModule,
-    // { httpsOptions }
-  );
-  // TODO: improve logger
-  app.useLogger(new Logger());
+  const app = await NestFactory.create(AppModule, {
+    httpsOptions,
+    bufferLogs: true,
+  });
+
+  app.useLogger(app.get(Logger));
   app.useGlobalPipes(new ValidationPipe());
   app.enableCors();
   app.setGlobalPrefix('api');
@@ -32,8 +36,6 @@ async function bootstrap() {
   SwaggerModule.setup('api/swagger', app, document);
 
   // setup port
-  await app.listen(process.env.API_PORT || 11001, () => {
-    Logger.log(`Listening on port ${process.env.API_PORT || 11001}`);
-  });
+  await app.listen(process.env.API_PORT || 11001);
 }
 bootstrap();

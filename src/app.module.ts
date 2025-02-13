@@ -9,6 +9,7 @@ import { PaymentModule } from './payment/payment.module';
 import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { FaucetModule } from './faucet/faucet.module';
 import * as path from 'path';
+import { LoggerModule } from 'nestjs-pino';
 
 @Module({
   imports: [
@@ -29,6 +30,33 @@ import * as path from 'path';
       resolvers: [
         AcceptLanguageResolver, // Accept-Language header resolver
       ],
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        name: 'InsightBackend',
+        level: 'trace',
+        transport: {
+          targets: [
+            {
+              level: 'trace',
+              target: 'pino-pretty',
+            },
+            {
+              level: process.env.NODE_ENV !== 'production' ? 'trace' : 'info',
+              target: 'pino-loki',
+              options: {
+                batching: true,
+                interval: 5,
+                host: process.env.LOKI_URL,
+                labels: {
+                  app: 'InsightBackend',
+                  namespace: process.env.NODE_ENV || 'development',
+                },
+              },
+            },
+          ],
+        },
+      },
     }),
     // Setup modules
     PrismaModule,
