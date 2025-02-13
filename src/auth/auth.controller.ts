@@ -7,6 +7,7 @@ import { ApiResponse, ApiTags } from '@nestjs/swagger';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ClaimDto } from './dto/claim.dto';
 import 'dotenv/config';
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
