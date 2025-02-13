@@ -19,10 +19,10 @@ import * as anchor from '@coral-xyz/anchor';
 import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { InsightFaucet } from './interfaces/insight_faucet';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 
 @Injectable()
 export class FaucetService {
+  private readonly logger = new Logger(FaucetService.name);
   private readonly anchorProvider: AnchorProvider;
   private readonly connection: Connection;
   private readonly program: Program<InsightFaucet>;
@@ -56,6 +56,8 @@ export class FaucetService {
     // this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
   }
 
+  // TODO: Improve error handling. We should also check if the public key
+  // has already claimed the faucet and handle the error if the transaction fails.
   async claim(publicKey: string, ip: string): Promise<string> {
     try {
       // Check if the IP address has already claimed the faucet
@@ -65,6 +67,9 @@ export class FaucetService {
       if (cachedRenewDate) {
         const availableInMs = cachedRenewDate.getTime() - Date.now();
         const availableInHours = Math.ceil(availableInMs / (60 * 60 * 1000)); // min * sec * ms
+        this.logger.warn(
+          `Public key: [${publicKey}] has already claimed the faucet. The next claim will be available in ${availableInHours} hours`,
+        );
         throw new ForbiddenException(
           this.i18n.t('faucet.alreadyClaimed', {
             args: { availableInHours },
@@ -74,7 +79,7 @@ export class FaucetService {
 
       // Claim the faucet and return the transaction signature
       const transaction = await this.claimUsdcThroughProgram(publicKey);
-      Logger.log(`[${publicKey}] claimed the faucet: [${transaction}]`);
+      this.logger.debug(`[${publicKey}] claimed the faucet: [${transaction}]`);
 
       const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -83,12 +88,12 @@ export class FaucetService {
 
       // Set the IP address to limit claiming from the faucet
       await this.cacheManager.set(ip, renewDate, ONE_DAY_IN_MS);
-      Logger.log(
+      this.logger.debug(
         `IP address has been set to cache for ip: [${ip}] public key: [${publicKey}]`,
       );
       return transaction;
     } catch (error) {
-      Logger.warn('Failed to claim a faucet: ', error);
+      this.logger.warn('Failed to claim a faucet: ', error);
       throw new ForbiddenException(error.message);
     }
   }
@@ -106,8 +111,7 @@ export class FaucetService {
         .rpc();
       return tx;
     } catch (error) {
-      Logger.warn('Failed to claim a faucet: ', error);
-      throw new BadRequestException(error.message);
+      throw new BadRequestException(`Transaction failed: ${error.message}`);
     }
   }
 
@@ -122,10 +126,10 @@ export class FaucetService {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(`Faucet has been configured: [${tx}]`);
+      this.logger.log(`Faucet has been configured: [${tx}]`);
       return tx;
     } catch (error) {
-      Logger.error(error);
+      this.logger.error(`Error configuring the faucet: [${error}]`);
     }
   }
 }

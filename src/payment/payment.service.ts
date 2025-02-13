@@ -31,10 +31,10 @@ import { I18nService } from 'nestjs-i18n';
 import { AccountType } from './constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { DepositProgram } from './interfaces/deposit_program';
-import { use } from 'passport';
 
 @Injectable()
-export class PaymentService implements OnModuleInit {
+export class PaymentService {
+  private readonly logger = new Logger(PaymentService.name);
   private readonly anchorProvider: AnchorProvider;
   private readonly connection: Connection;
   private readonly program: Program<DepositProgram>;
@@ -92,10 +92,6 @@ export class PaymentService implements OnModuleInit {
     // );
   }
 
-  onModuleInit() {
-    Logger.log('Payment Service initialized');
-  }
-
   // TODO: test this method
   async refundUserBalance(publicKey: string, amount: number): Promise<string> {
     try {
@@ -112,6 +108,9 @@ export class PaymentService implements OnModuleInit {
       // Check if balance is frozen
       const isBalanceFrozen = userInfo.isBalanceFrozen;
       if (isBalanceFrozen) {
+        this.logger.error(
+          `User [${userPublicKey.toString()}] balance is frozen`,
+        );
         throw new Error(this.i18n.t('payment.errors.balanceIsFrozen'));
       }
 
@@ -129,6 +128,9 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user has sufficient balance to refund
       if (userVaultBalance < amount) {
+        this.logger.error(
+          `User [${userPublicKey.toString()}] has insufficient balance`,
+        );
         throw new Error(this.i18n.t('payment.errors.insufficientBalance'));
       }
 
@@ -137,12 +139,12 @@ export class PaymentService implements OnModuleInit {
         userPublicKey,
         amount,
       );
-      Logger.log(
+      this.logger.debug(
         `User [${userPublicKey.toString()}] balance [${userVaultBalance}] refunded`,
       );
       return transaction;
     } catch (error) {
-      Logger.error(`Error refunding user's balance: [${error}]`);
+      this.logger.error(`Error refunding user's balance: [${error}]`);
 
       // Throw exception to client
       throw new HttpException(
@@ -173,11 +175,15 @@ export class PaymentService implements OnModuleInit {
           await this.startPayingPerHours(client);
           break;
         default:
+          this.logger.error(`Invalid subscription type: [${subscriptionType}]`);
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
           );
       }
     } catch (error) {
+      this.logger.error(
+        `Error starting payment with required method: [${error}]`,
+      );
       // Emit error to client and disconnect him
       const message = this.i18nWs(
         client,
@@ -185,7 +191,6 @@ export class PaymentService implements OnModuleInit {
       );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-      Logger.error(`Error starting payment method: [${error}]`);
     }
   }
 
@@ -206,11 +211,15 @@ export class PaymentService implements OnModuleInit {
           await this.stopPayingPerHours(client);
           break;
         default:
+          this.logger.error(`Invalid subscription type: [${subscriptionType}]`);
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
           );
       }
     } catch (error) {
+      this.logger.error(
+        `Error stopping payment with required method: [${error}]`,
+      );
       // Emit error to client and disconnect him
       const message = this.i18nWs(
         client,
@@ -218,16 +227,15 @@ export class PaymentService implements OnModuleInit {
       );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-      Logger.error(
-        `Error stopping translation with required payment method: [${error}]`,
-      );
     }
   }
 
   private async startPayingPerMinutes(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      Logger.log(`User [${userPublicKey.toString()}] started paying per usage`);
+      this.logger.debug(
+        `User [${userPublicKey.toString()}] started paying per usage`,
+      );
 
       const userInfoAddress = this.getUserInfoAddress(
         AccountType.INFO,
@@ -246,6 +254,9 @@ export class PaymentService implements OnModuleInit {
 
       // Check if user has sufficient balance
       if (userVaultBalance < this.USDC_PRICE_PER_MINUTE) {
+        this.logger.error(
+          `User [${userPublicKey.toString()}] has insufficient balance`,
+        );
         throw new Error(
           this.i18nWs(client, 'payment.errors.insufficientBalance'),
         );
@@ -253,14 +264,16 @@ export class PaymentService implements OnModuleInit {
 
       // Freeze user balance
       await this.freezeBalanceThroughProgram(client, userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] balance is frozen`,
+      );
 
       // Define translation usage start time
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
-      Logger.log(
+      this.logger.debug(
         `Cache set for user [${userPublicKey.toString()}] with start time: [${usageStartTime}]`,
       );
 
@@ -283,12 +296,12 @@ export class PaymentService implements OnModuleInit {
         usageTimeLimit,
         userVaultBalance,
       );
-      Logger.log(
+      this.logger.debug(
         `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
       );
       // Disconnect client if error occurs
     } catch (error) {
-      Logger.error(`Error starting pay per minutes: [${error}]`);
+      this.logger.error(`Error starting pay per minutes: [${error}]`);
 
       // Emit error to client
       const message = this.i18nWs(
@@ -303,9 +316,11 @@ export class PaymentService implements OnModuleInit {
       try {
         await this.clearUserResources(userPublicKey);
         await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+        this.logger.debug(
+          `User's [${userPublicKey.toString()}] resources cleared`,
+        );
       } catch (error) {
-        Logger.error(
+        this.logger.error(
           `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
         );
       }
@@ -326,7 +341,7 @@ export class PaymentService implements OnModuleInit {
       // Check if user has usage start time
       // For situations when timeouts are executed
       if (!usageStartTime) {
-        Logger.warn(
+        this.logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
         return;
@@ -349,13 +364,13 @@ export class PaymentService implements OnModuleInit {
           : Math.floor(timeDifferenceInMinutes);
 
       const totalPrice = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
-      Logger.log(
+      this.logger.debug(
         `User's [${userPublicKey.toString()}] total price: [${totalPrice}]`,
       );
 
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] state reset`);
+      this.logger.debug(`User's [${userPublicKey.toString()}] state reset`);
 
       // Withdraw money from user using program
       if (totalPrice !== 0) {
@@ -365,8 +380,11 @@ export class PaymentService implements OnModuleInit {
 
       // Unfreeze user's balance if no money was withdrawn
       await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] balance is unfrozen`);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] balance is unfrozen`,
+      );
     } catch (error) {
+      this.logger.error(`Error stopping pay per time: [${error}]`);
       // Disconnect client if error occurs
       const message = this.i18nWs(
         client,
@@ -374,14 +392,15 @@ export class PaymentService implements OnModuleInit {
       );
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
-      Logger.error(`Error stopping pay per time: [${error}]`);
     }
   }
 
   private async startFreeHoursUsing(client: Socket): Promise<void> {
     try {
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      Logger.log(`Starting free hours using for [${userPublicKey.toString()}]`);
+      this.logger.debug(
+        `Starting free hours using for [${userPublicKey.toString()}]`,
+      );
 
       // Get user's free hours start date
       let freeHoursStartDate: Date | null =
@@ -397,7 +416,7 @@ export class PaymentService implements OnModuleInit {
           userPublicKey.toString(),
         );
         freeHoursStartDate = currentUsageStartTime;
-        Logger.log(
+        this.logger.debug(
           `User [${userPublicKey.toString()}] free hours start date set`,
         );
       }
@@ -422,6 +441,9 @@ export class PaymentService implements OnModuleInit {
 
       // If user has no free hours left and no renew, throw an error
       if (userFreeHoursLeft === 0) {
+        this.logger.error(
+          `User [${userPublicKey.toString()}] has no free hours left`,
+        );
         throw new Error(
           this.i18nWs(client, 'payment.errors.noFreeHoursAvailable'),
         );
@@ -435,15 +457,15 @@ export class PaymentService implements OnModuleInit {
       );
 
       this.cacheManager.set(userPublicKey.toString(), currentUsageStartTime);
-      Logger.log(
+      this.logger.debug(
         `User [${userPublicKey.toString()}] set cache with start time: [${currentUsageStartTime}]`,
       );
 
-      Logger.log(
+      this.logger.debug(
         `User [${userPublicKey.toString()}] started using free hours at [${currentUsageStartTime}]`,
       );
     } catch (error) {
-      Logger.error(`Error starting free hours usage: [${error}]`);
+      this.logger.error(`Error starting free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -459,7 +481,7 @@ export class PaymentService implements OnModuleInit {
         this.cacheManager.del(userPublicKey.toString());
         this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
       } catch (error) {
-        Logger.error(`Error deleting cache and timeout: [${error}]`);
+        this.logger.error(`Error deleting cache and timeout: [${error}]`);
       }
     }
   }
@@ -491,22 +513,22 @@ export class PaymentService implements OnModuleInit {
         remainingFreeHoursInSeconds,
         userPublicKey.toString(),
       );
-      Logger.log(
+      this.logger.debug(
         `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSeconds}]`,
       );
 
       // TODO: check for release function
       this.cacheManager.del(userPublicKey.toString());
-      Logger.log(
+      this.logger.debug(
         `Cache deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
       );
 
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-      Logger.log(
+      this.logger.debug(
         `Timeout deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
       );
     } catch (error) {
-      Logger.error(`Error stopping free hours usage: [${error}]`);
+      this.logger.error(`Error stopping free hours usage: [${error}]`);
 
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -521,7 +543,9 @@ export class PaymentService implements OnModuleInit {
   private async startPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      Logger.log(`Starting pay per hours for [${userPublicKey.toString()}]`);
+      this.logger.debug(
+        `Starting pay per hours for [${userPublicKey.toString()}]`,
+      );
       const userInfoAddress = this.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
@@ -543,6 +567,7 @@ export class PaymentService implements OnModuleInit {
         await this.program.account.userInfo.fetch(userInfoAddress);
 
       if (!userInfo) {
+        this.logger.error(`User [${userPublicKey.toString()}] info not found`);
         throw new Error(this.i18nWs(client, 'payment.errors.userInfoNotFound'));
       }
       const perHoursLeft: number = userInfo.perHourLeft.toNumber();
@@ -555,6 +580,9 @@ export class PaymentService implements OnModuleInit {
         !hasRemainingHours &&
         userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
       ) {
+        this.logger.error(
+          `User [${userPublicKey.toString()}] has insufficient balance`,
+        );
         throw new Error(
           this.i18nWs(client, 'payment.errors.insufficientBalance'),
         );
@@ -562,14 +590,16 @@ export class PaymentService implements OnModuleInit {
 
       // Freeze user's balance
       await this.freezeBalanceThroughProgram(client, userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] balance is frozen`);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] balance is frozen`,
+      );
 
       // Define translation usage start time
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey.toString(), usageStartTime);
-      Logger.log(`Cache set for user [${userPublicKey.toString()}]`);
+      this.logger.debug(`Cache set for user [${userPublicKey.toString()}]`);
 
       // Determine the expiration time of the user's balance
       const availableTimeFromBalance: number = Math.floor(
@@ -600,13 +630,15 @@ export class PaymentService implements OnModuleInit {
         userTimedVaultBalance,
         true, // For per hours payment
       );
-      Logger.log(
+      this.logger.debug(
         `Usage time limit set for user [${userPublicKey.toString()}]: [${usageTimeLimit}]`,
       );
 
-      Logger.log(`User [${userPublicKey.toString()}] started paying per hours`);
+      this.logger.debug(
+        `User [${userPublicKey.toString()}] started paying per hours`,
+      );
     } catch (error) {
-      Logger.error(`Error starting pay per hour: [${error}]`);
+      this.logger.error(`Error starting pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -621,9 +653,11 @@ export class PaymentService implements OnModuleInit {
       try {
         await this.clearUserResources(userPublicKey);
         await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+        this.logger.debug(
+          `User's [${userPublicKey.toString()}] resources cleared`,
+        );
       } catch (error) {
-        Logger.error(
+        this.logger.error(
           `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
         );
       }
@@ -639,7 +673,7 @@ export class PaymentService implements OnModuleInit {
       // Check if user has usage start time
       // For situations when timeouts are executed
       if (!usageStartTime) {
-        Logger.warn(
+        this.logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
         return;
@@ -659,6 +693,7 @@ export class PaymentService implements OnModuleInit {
         await this.program.account.userInfo.fetch(userInfoAddress);
 
       if (!userInfo) {
+        this.logger.error(`User [${userPublicKey.toString()}] info not found`);
         throw new Error(this.i18nWs(client, 'payment.errors.userInfoNotFound'));
       }
 
@@ -688,10 +723,10 @@ export class PaymentService implements OnModuleInit {
           totalPriceInRawUSDC,
           newPerHoursLeftInSeconds,
         );
-        Logger.log(
+        this.logger.debug(
           `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeftInSeconds} seconds`,
         );
-        Logger.log(
+        this.logger.debug(
           `User [${userPublicKey.toString()}] paid [${totalPriceInRawUSDC}] USDC for [${totalHoursToPay}] used hours`,
         );
       } else {
@@ -702,16 +737,18 @@ export class PaymentService implements OnModuleInit {
           0, // No new hours to pay
           totalUsageInSeconds,
         );
-        Logger.log(
+        this.logger.debug(
           `User's [${userPublicKey.toString()}] per hours left: [${totalUsageInHours}]`,
         );
       }
 
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
-      Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] resources cleared`,
+      );
     } catch (error) {
-      Logger.error(`Error stopping pay per hour: [${error}]`);
+      this.logger.error(`Error stopping pay per hour: [${error}]`);
 
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -726,9 +763,11 @@ export class PaymentService implements OnModuleInit {
       try {
         await this.clearUserResources(userPublicKey);
         await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        Logger.log(`User's [${userPublicKey.toString()}] resources cleared`);
+        this.logger.debug(
+          `User's [${userPublicKey.toString()}] resources cleared`,
+        );
       } catch (error) {
-        Logger.error(
+        this.logger.error(
           `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
         );
       }
@@ -749,9 +788,9 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(`Payment done: [${transaction}]`);
+      this.logger.debug(`Payment done: [${transaction}]`);
     } catch (error) {
-      Logger.error(error);
+      this.logger.error(`Error paying per minute: [${error}]`);
     }
   }
 
@@ -773,9 +812,9 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(`Payment done: [${transaction}]`);
+      this.logger.debug(`Payment done: [${transaction}]`);
     } catch (error) {
-      Logger.error(error);
+      this.logger.error(`Error paying per hour: [${error}]`);
     }
   }
 
@@ -793,12 +832,12 @@ export class PaymentService implements OnModuleInit {
         })
         .signers([this.master])
         .rpc();
-      Logger.log(
+      this.logger.debug(
         `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
       );
       return transaction;
     } catch (error) {
-      Logger.error(error);
+      this.logger.error(`Error refunding balance: [${error}]`);
     }
   }
 
@@ -816,7 +855,7 @@ export class PaymentService implements OnModuleInit {
         .rpc();
       return transaction;
     } catch (error) {
-      Logger.error(
+      this.logger.error(
         `Error freezing user's [${userPublicKey.toString()}] balance: [${error}]`,
       );
       throw new Error(
@@ -839,7 +878,7 @@ export class PaymentService implements OnModuleInit {
         .rpc();
       return transaction;
     } catch (error) {
-      Logger.error(
+      this.logger.error(
         `Error unfreezing user's [${userPublicKey.toString()}] balance: [${error}]`,
       );
       throw new Error(
@@ -909,13 +948,13 @@ export class PaymentService implements OnModuleInit {
       } else {
         await this.payPerMinuteThroughProgram(userPublicKey, priceInRawUSDC);
       }
-      Logger.log(
+      this.logger.debug(
         `User [${userPublicKey.toString()}] paid for the used time: [${priceInRawUSDC}] USDC`,
       );
 
       // Clear user's resources
       this.cacheManager.del(userPublicKey.toString());
-      Logger.log(`User's [${userPublicKey.toString()}] cache deleted`);
+      this.logger.debug(`User's [${userPublicKey.toString()}] cache deleted`);
 
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -926,7 +965,7 @@ export class PaymentService implements OnModuleInit {
       this.emitErrorToWsClient(client, message, error);
       client.disconnect();
 
-      Logger.log(
+      this.logger.debug(
         `User's [${userPublicKey.toString()}] balance expired. Timeout executed`,
       );
     };
@@ -934,7 +973,7 @@ export class PaymentService implements OnModuleInit {
     // Add timeout to scheduler registry
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     this.schedulerRegistry.addTimeout(taskName, timeout);
-    Logger.log(
+    this.logger.debug(
       `Timeout added to scheduler for user: [${userPublicKey.toString()}] executes in [${millisecondsToExecute}ms]`,
     );
   }
@@ -949,8 +988,8 @@ export class PaymentService implements OnModuleInit {
       await this.accountService.setFreeHours(0, userPublicKey.toString());
 
       this.cacheManager.del(userPublicKey.toString());
-      Logger.log(`User's [${userPublicKey.toString()}] cache deleted`);
-      Logger.log(
+      this.logger.debug(`User's [${userPublicKey.toString()}] cache deleted`);
+      this.logger.debug(
         `User's [${userPublicKey.toString()}] free hours expired. Timeout executed`,
       );
 
@@ -970,7 +1009,7 @@ export class PaymentService implements OnModuleInit {
     const taskName = userPublicKey.toString();
 
     this.schedulerRegistry.addTimeout(taskName, timeout);
-    Logger.log(
+    this.logger.debug(
       `Timeout added to scheduler for user: [${userPublicKey.toString()}] executes in [${millisecondsToExecute}ms]`,
     );
   }
@@ -981,14 +1020,14 @@ export class PaymentService implements OnModuleInit {
     try {
       this.cacheManager.del(userPublicKey.toString());
     } catch (error) {
-      Logger.error(`Error deleting cache: [${error}]`);
+      this.logger.warn(`Error deleting cache: [${error}]`);
     }
 
     // Remove user's timeout
     try {
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
     } catch (error) {
-      Logger.warn(`Error deleting timeout: [${error}]`);
+      this.logger.warn(`Error deleting timeout: [${error}]`);
     }
   }
 
@@ -1006,7 +1045,7 @@ export class PaymentService implements OnModuleInit {
       usageStartTime,
       userPublicKey.toString(),
     );
-    Logger.log(`User [${userPublicKey.toString()}] free hours renewed`);
+    this.logger.debug(`User [${userPublicKey.toString()}] free hours renewed`);
   }
 
   private getUserInfoAddress(
@@ -1041,26 +1080,5 @@ export class PaymentService implements OnModuleInit {
     // Get client's language from handshake's headers
     const lang = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
-  }
-
-  // TODO: Remove this test method
-  private async depositToVault(price: number): Promise<void> {
-    try {
-      const user = Keypair.fromSecretKey(
-        new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-      );
-      const transaction = await this.program.methods
-        .deposit(new anchor.BN(price))
-        .accounts({
-          user: user.publicKey,
-          token: this.USDC_TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([user])
-        .rpc();
-      console.log(transaction);
-    } catch (error) {
-      console.log(`Error: ${error}`);
-    }
   }
 }

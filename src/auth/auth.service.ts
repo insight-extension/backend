@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { VerifyDto } from './dto/verify.dto';
 import { Verify } from './types/verify.type';
@@ -13,31 +18,37 @@ import { GetNonceDto } from './dto/get-nonce.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
-import 'dotenv/config';
 import { I18nService } from 'nestjs-i18n';
 import { JwtExpire } from './constants/jwt-expire.enum';
+import 'dotenv/config';
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly accountService: AccountService,
     private readonly jwtService: JwtService,
     private readonly i18n: I18nService,
     // cacheManager<key: string(publicKey), value: string(nonce)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
-  ) { }
+  ) {}
 
   // Validate signed signature from client and return jwt tokens
   async verify(dto: VerifyDto): Promise<Verify> {
     const account = await this.validateSignature(dto);
     if (!account) {
+      this.logger.error('Invalid signature detected', dto);
       throw new Error(this.i18n.t('auth.invalidSignature'));
     }
+
     const accountExists = await this.accountService.findOneByPublicKey(
       account.publicKey,
     );
     if (!accountExists) {
       this.accountService.saveAccount(account);
     }
+
     return {
       accessToken: await this.generateAccessToken({
         publicKey: account.publicKey,
@@ -53,6 +64,7 @@ export class AuthService {
     const { publicKey, nonce } = await this.generateNonceForPublicKey({
       publicKey: dto.publicKey,
     });
+
     return {
       publicKey: publicKey,
       nonce: nonce,
@@ -65,10 +77,14 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshToken, {
         secret: process.env.JWT_SECRET,
       });
+
       const account = await this.accountService.findOneByPublicKey(
         payload.publicKey,
       );
       if (!account) {
+        this.logger.error(
+          `Account not found for publicKey: ${payload.publicKey}`,
+        );
         throw new Error(this.i18n.t('auth.accountNotFound'));
       }
 
@@ -78,27 +94,17 @@ export class AuthService {
         accessToken: await this.generateAccessToken(newPayload),
         refreshToken: await this.generateRefreshToken(newPayload),
       };
-    } catch {
+    } catch (error) {
+      this.logger.error('Invalid refresh token', error);
       throw new Error(this.i18n.t('auth.invalidRefreshToken'));
     }
-  }
-
-  private async generateAccessToken(payload: any): Promise<string> {
-    return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
-    });
-  }
-
-  private async generateRefreshToken(payload: any): Promise<string> {
-    return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
-    });
   }
 
   // Validate signed by client nonce
   private async validateSignature(dto: ValidateSignatureDto) {
     const nonce: string = await this.cacheManager.get(dto.publicKey);
     if (!nonce) {
+      this.logger.error(`Nonce not found for publicKey: ${dto.publicKey}`);
       throw new BadRequestException(this.i18n.t('auth.candidateNotFound'));
     }
 
@@ -111,8 +117,8 @@ export class AuthService {
       signatureUint8,
       publicKeyUint8,
     );
-
     if (!isValid) {
+      this.logger.error(`Invalid signature for publicKey: ${dto.publicKey}`);
       throw new BadRequestException(this.i18n.t('auth.invalidSignature'));
     }
 
@@ -129,6 +135,7 @@ export class AuthService {
       dto.publicKey,
     );
     if (existingNonce) {
+      this.logger.debug(`Nonce found for publicKey: ${dto.publicKey}`);
       return {
         publicKey: dto.publicKey,
         nonce: existingNonce,
@@ -143,6 +150,18 @@ export class AuthService {
       publicKey: dto.publicKey,
       nonce,
     };
+  }
+
+  private async generateAccessToken(payload: any): Promise<string> {
+    return await this.jwtService.signAsync(payload, {
+      expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
+    });
+  }
+
+  private async generateRefreshToken(payload: any): Promise<string> {
+    return await this.jwtService.signAsync(payload, {
+      expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
+    });
   }
 
   private generateNonce(): string {
