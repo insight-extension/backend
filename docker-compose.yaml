@@ -3,13 +3,13 @@ services:
     image: postgres:17-alpine
     restart: always
     environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "postgres"
-      POSTGRES_DB: "insight"
+      POSTGRES_USER: '${POSTGRES_USER}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD}'
+      POSTGRES_DB: '${POSTGRES_DB}'
     ports:
-      - "5432:5432"
+      - '${POSTGRES_PORT}:${POSTGRES_PORT}'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -18,12 +18,12 @@ services:
     image: adminer
     restart: always
     ports:
-      - "8080:8080"
+      - '8080:8080'
 
   loki:
     image: grafana/loki:latest
     ports:
-      - "3100:3100"
+      - '3100:3100'
     command: -config.file=/etc/loki/local-config.yaml
 
   grafana:
@@ -53,4 +53,20 @@ services:
         /run.sh
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - '3000:3000'
+
+  insight:
+    build:
+      context: .
+      args:
+        PORT: ${API_PORT} # Pass API_PORT from .env file
+    ports:
+      - '${API_PORT}:${API_PORT}' # Map host port to container port
+    env_file:
+      - .env # Ensure .env file is loaded for environment variables
+    environment:
+      - ENV=production # Set ENV to production
+    command: pnpm run start:prod # Run the app in production mode
+    depends_on:
+      - loki # Ensure Loki starts before insight
+      - postgres # Ensure Postgres starts before insight
