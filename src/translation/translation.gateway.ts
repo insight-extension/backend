@@ -193,7 +193,6 @@ export class TranslationGateway
     clientId: string,
   ): Promise<RealtimeSession> {
     this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
-
     const session = new RealtimeSession(apiKey);
 
     // Buffer for accumulating text received from the client
@@ -204,6 +203,10 @@ export class TranslationGateway
       this.logger.debug(
         `Transcript received for client ${clientId}: ${transcript}`,
       );
+
+      // Get languages from headers
+      const sourceLang = this.extractSourceLanguage(client);
+      const targetLang = this.extractTargetLanguage(client);
 
       // Update the buffer, ensuring seamless merging of text
       clientBuffer = clientBuffer.trim() + ` ${transcript.trim()}`;
@@ -317,5 +320,17 @@ export class TranslationGateway
       this.logger.error(`Error communicating with OpenAI API: ${error}`);
       return '';
     }
+  }
+
+  private extractTargetLanguage(client: Socket): string {
+    const header = client.handshake.headers['target-language'] || 'ua';
+    const targetLanguage = Array.isArray(header) ? header[0] : header;
+    return targetLanguage;
+  }
+
+  private extractSourceLanguage(client: Socket): string {
+    const header = client.handshake.headers['source-language'] || 'en';
+    const sourceLanguage = Array.isArray(header) ? header[0] : header;
+    return sourceLanguage;
   }
 }
