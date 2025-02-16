@@ -60,6 +60,7 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
+
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
     if (isAuthorized) {
@@ -195,6 +196,16 @@ export class TranslationGateway
     this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
     const session = new RealtimeSession(apiKey);
 
+    // Get the client socket's instance
+    const client = this.server.sockets.sockets.get(clientId);
+
+    // Get languages from headers
+    const sourceLang = this.extractSourceLanguage(client);
+    const targetLang = this.extractTargetLanguage(client);
+    Logger.debug(
+      `Source language: ${sourceLang}, Target language: ${targetLang}`,
+    );
+
     // Buffer for accumulating text received from the client
     let clientBuffer = '';
 
@@ -203,10 +214,6 @@ export class TranslationGateway
       this.logger.debug(
         `Transcript received for client ${clientId}: ${transcript}`,
       );
-
-      // Get languages from headers
-      const sourceLang = this.extractSourceLanguage(client);
-      const targetLang = this.extractTargetLanguage(client);
 
       // Update the buffer, ensuring seamless merging of text
       clientBuffer = clientBuffer.trim() + ` ${transcript.trim()}`;
@@ -221,8 +228,8 @@ export class TranslationGateway
             // Translate the extracted sentence
             const translatedText = await this.translateText(
               sentence,
-              'en',
-              'ua',
+              sourceLang,
+              targetLang,
             );
             this.logger.debug(
               `Translation for client ${clientId}: ${translatedText}`,
@@ -267,7 +274,7 @@ export class TranslationGateway
 
     await session.start({
       transcription_config: {
-        language: 'en',
+        language: targetLang,
         enable_partials: true,
       },
       audio_format: {
@@ -297,8 +304,8 @@ export class TranslationGateway
 
   private async translateText(
     text: string,
-    sourceLang: string = 'en',
-    targetLang: string = 'ua',
+    sourceLang: string,
+    targetLang: string,
   ): Promise<string> {
     try {
       const response = await this.openai.chat.completions.create({
@@ -323,13 +330,21 @@ export class TranslationGateway
   }
 
   private extractTargetLanguage(client: Socket): string {
-    const header = client.handshake.headers['target-language'] || 'ua';
+    const header = client.handshake.headers['target-language'];
+    if (!header) {
+      client.emit('error', { message: 'Target language not specified.' });
+      return 'ua';
+    }
     const targetLanguage = Array.isArray(header) ? header[0] : header;
     return targetLanguage;
   }
 
   private extractSourceLanguage(client: Socket): string {
-    const header = client.handshake.headers['source-language'] || 'en';
+    const header = client.handshake.headers['source-language'];
+    if (!header) {
+      client.emit('error', { message: 'Source language not specified.' });
+      return 'en';
+    }
     const sourceLanguage = Array.isArray(header) ? header[0] : header;
     return sourceLanguage;
   }
