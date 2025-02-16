@@ -2,8 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import * as fs from 'fs'; // Import the 'fs' module
-import path from 'path';
+import * as fs from 'fs';
 import 'dotenv/config';
 import { Logger } from 'nestjs-pino';
 

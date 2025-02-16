@@ -65,7 +65,7 @@ services:
     env_file:
       - .env # Ensure .env file is loaded for environment variables
     environment:
-      - ENV=production # Set ENV to production
+      - NODE_ENV=production # Set NODE_ENV to production
     command: pnpm run start:prod # Run the app in production mode
     depends_on:
       - loki # Ensure Loki starts before insight
