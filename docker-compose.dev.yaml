@@ -1,3 +1,4 @@
+# Compose for backend development
 services:
   postgres:
     image: postgres:17-alpine
@@ -54,19 +55,3 @@ services:
     image: grafana/grafana:latest
     ports:
       - '3000:3000'
-
-  insight:
-    build:
-      context: .
-      args:
-        PORT: ${API_PORT} # Pass API_PORT from .env file
-    ports:
-      - '${API_PORT}:${API_PORT}' # Map host port to container port
-    env_file:
-      - .env # Ensure .env file is loaded for environment variables
-    environment:
-      - ENV=production # Set ENV to production
-    command: pnpm run start:prod # Run the app in production mode
-    depends_on:
-      - loki # Ensure Loki starts before insight
-      - postgres # Ensure Postgres starts before insight
