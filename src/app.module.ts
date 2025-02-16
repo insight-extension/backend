@@ -49,7 +49,7 @@ import { LoggerModule } from 'nestjs-pino';
                 interval: 5,
                 host: process.env.LOKI_URL,
                 labels: {
-                  app: 'InsightBackend',
+                  app: process.env.LABELS,
                   namespace: process.env.NODE_ENV || 'development',
                 },
               },
