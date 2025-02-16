@@ -75,22 +75,6 @@ export class PaymentService {
     );
     setProvider(this.anchorProvider);
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
-    // TODO: remove
-    //this.depositToVault(this.USDC_PRICE_PER_HOUR);
-    // this.payPerMinuteThroughProgram(
-    //   Keypair.fromSecretKey(
-    //     new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-    //   ).publicKey,
-    //   1,
-    // );
-
-    // this.payPerHourThroughProgram(
-    //   Keypair.fromSecretKey(
-    //     new Uint8Array(bs58.decode(process.env.SECOND_PRIVATE_KEY ?? '')),
-    //   ).publicKey,
-    //   1,
-    //   0,
-    // );
   }
 
   async refundUserBalance(
