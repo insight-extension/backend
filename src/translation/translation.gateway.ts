@@ -117,22 +117,30 @@ export class TranslationGateway
       try {
         this.logger.debug(`No session found for client ${client.id}`);
         const apiKey = this.getAvailableApiKey();
+
         if (!apiKey) {
           this.logger.error(`No available API keys for client ${client.id}`);
           client.emit('error', {
-            message: 'No available API keys. Try again later.',
+            message: 'No available slots for translations. Try again later.',
           });
           return;
         }
 
         const session = await this.createSpeechmaticsSession(apiKey, client.id);
+
+        // Check if the client disconnected while the session was being created
+        if (!client.connected) {
+          await session.stop();
+          return;
+        }
         this.speechmaticsSessions.set(client.id, { session, apiKey });
+        this.apiKeyUsage.set(apiKey, true);
       } catch (error) {
         this.logger.error(
           `Error creating session for client ${client.id}, error ${error}`,
         );
         client.emit('error', {
-          message: 'Failed to start Speechmatics session.',
+          message: 'Failed to start translation session.',
         });
       } finally {
         this.creatingSessions.delete(client.id); // Remove the lock
@@ -155,7 +163,6 @@ export class TranslationGateway
     for (const [key, inUse] of this.apiKeyUsage.entries()) {
       if (!inUse) {
         // Mark the key as busy
-        this.apiKeyUsage.set(key, true);
         return key;
       }
     }

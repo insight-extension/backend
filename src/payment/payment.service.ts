@@ -92,7 +92,6 @@ export class PaymentService {
     // );
   }
 
-  // TODO: test this method
   async refundUserBalance(publicKey: string, amount: number): Promise<string> {
     try {
       // User's PDA address
