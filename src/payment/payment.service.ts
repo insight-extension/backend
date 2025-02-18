@@ -92,7 +92,6 @@ export class PaymentService {
     // );
   }
 
-  // TODO: test this method
   async refundUserBalance(publicKey: string, amount: number): Promise<string> {
     try {
       // User's PDA address
@@ -288,6 +287,16 @@ export class PaymentService {
         minutesLimit,
       );
 
+      // Check if user has an existing timeout and delete it
+      if (
+        this.schedulerRegistry.doesExist('timeout', userPublicKey.toString())
+      ) {
+        this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+        this.logger.debug(
+          `Existing timeout [${userPublicKey.toString()}] removed`,
+        );
+      }
+
       // Set a timeout to execute when the user's balance expires if paying per time was not manually stopped
       await this.setBalanceExpirationTimeout(
         client,
@@ -449,6 +458,16 @@ export class PaymentService {
         );
       }
 
+      // Check if user has an existing timeout and delete it
+      if (
+        this.schedulerRegistry.doesExist('timeout', userPublicKey.toString())
+      ) {
+        this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+        this.logger.debug(
+          `Existing timeout [${userPublicKey.toString()}] removed`,
+        );
+      }
+
       // Set expiration timeout for free hours if it's not stopped manually by the user
       this.setFreeHoursExpirationTimeout(
         userFreeHoursLeft,
@@ -493,6 +512,15 @@ export class PaymentService {
       const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
+
+      // Check if user has usage start time
+      // For situations when timeouts are executed
+      if (!usageStartTime) {
+        this.logger.warn(
+          `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
+        );
+        return;
+      }
 
       // Calculate remaining free hours
       const timeDifferenceInMilliseconds =
@@ -618,6 +646,16 @@ export class PaymentService {
         // Add hours left to the available time
         usageTimeLimit = new Date(
           Date.now() + availableTimeInMilliseconds + perHoursLeftInMilliseconds,
+        );
+      }
+
+      // Check if user has an existing timeout and delete it
+      if (
+        this.schedulerRegistry.doesExist('timeout', userPublicKey.toString())
+      ) {
+        this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
+        this.logger.debug(
+          `Existing timeout [${userPublicKey.toString()}] removed`,
         );
       }
 

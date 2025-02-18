@@ -36,6 +36,9 @@ export class TranslationGateway
     { session: RealtimeSession; apiKey: string }
   > = new Map();
 
+  // To track sessions being created
+  private creatingSessions: Set<string> = new Set();
+
   // API key usage status: apiKey -> busy flag (true/false)
   private apiKeyUsage: Map<string, boolean> = new Map();
 
@@ -61,7 +64,7 @@ export class TranslationGateway
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
     if (isAuthorized) {
       // Start translation with required payment method
-      this.paymentService.startPaymentWithRequiredMethod(client);
+      await this.paymentService.startPaymentWithRequiredMethod(client);
 
       client.on('audioData', async (data: any) => {
         if (data instanceof Uint8Array) {
@@ -84,12 +87,18 @@ export class TranslationGateway
     if (this.speechmaticsSessions.has(clientId)) {
       const { session, apiKey } = this.speechmaticsSessions.get(clientId);
 
-      // Stop the Speechmatics session
-      await session.stop();
-      this.logger.debug(`Speechmatics session stopped for client: ${clientId}`);
-
       // Remove the session from the map
       this.speechmaticsSessions.delete(clientId);
+
+      // Stop the Speechmatics session
+      try {
+        await session.stop();
+        this.logger.debug(
+          `Speechmatics session stopped for client: ${clientId}`,
+        );
+      } catch (error) {
+        this.logger.error(`Error stopping session for client ${clientId}`);
+      }
 
       // Release the API key
       if (apiKey) {
@@ -97,9 +106,6 @@ export class TranslationGateway
       }
     }
   }
-
-  // To track sessions being created
-  private creatingSessions: Set<string> = new Set();
 
   @SubscribeMessage('audioData')
   async handleAudioData(
@@ -117,23 +123,43 @@ export class TranslationGateway
       try {
         this.logger.debug(`No session found for client ${client.id}`);
         const apiKey = this.getAvailableApiKey();
+
         if (!apiKey) {
           this.logger.error(`No available API keys for client ${client.id}`);
           client.emit('error', {
-            message: 'No available API keys. Try again later.',
+            message: 'No available slots for translations. Try again later.',
           });
           return;
         }
 
-        const session = await this.createSpeechmaticsSession(apiKey, client.id);
+        // this.apiKeyUsage.set(apiKey, false);
+        let session: RealtimeSession;
+        try {
+          session = await this.createSpeechmaticsSession(apiKey, client.id);
+        } catch (error) {
+          this.apiKeyUsage.set(apiKey, false);
+          throw new Error(error);
+        }
+
+        // Check if the client disconnected while the session was being created
+        if (!client.connected) {
+          try {
+            await session.stop();
+          } catch (error) {
+            this.logger.error(`Error stopping session for client ${client.id}`);
+          }
+          this.apiKeyUsage.set(apiKey, false);
+          return;
+        }
         this.speechmaticsSessions.set(client.id, { session, apiKey });
       } catch (error) {
         this.logger.error(
           `Error creating session for client ${client.id}, error ${error}`,
         );
         client.emit('error', {
-          message: 'Failed to start Speechmatics session.',
+          message: 'Failed to start translation session.',
         });
+        return;
       } finally {
         this.creatingSessions.delete(client.id); // Remove the lock
       }
