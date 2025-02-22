@@ -76,16 +76,10 @@ export class AuthService {
   // Refresh access and refresh tokens by providing refresh token
   async refreshToken(refreshToken: string): Promise<RefreshTokenResponseDto> {
     try {
+      // Throws error if token is invalid
       const payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: process.env.JWT_SECRET,
       });
-
-      if (!payload) {
-        this.logger.error(
-          `Account not found for publicKey: ${payload.publicKey}`,
-        );
-        throw new ForbiddenException(this.i18n.t('auth.accountNotFound'));
-      }
 
       const newPayload = { publicKey: payload.publicKey };
 

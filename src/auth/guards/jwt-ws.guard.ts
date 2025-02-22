@@ -32,18 +32,11 @@ export class WsJwtGuard {
       }
 
       // Get payload from encoded token
+      // Throws error if token is invalid
       const payload = await this.jwtService.verifyAsync(bearerToken, {
         secret: process.env.JWT_SECRET,
       });
 
-      // Return true if user exists in db
-      const user = await this.accountService.findOneByPublicKey(
-        payload.publicKey,
-      );
-
-      if (!user) {
-        throw new ForbiddenException('User not found');
-      }
       return true;
     } catch (error) {
       // Emit error to client and disconnect
