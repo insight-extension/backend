@@ -324,8 +324,8 @@ export class TranslationGateway
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Just translate text from ${sourceLang} to ${targetLang}, keeping the context.`,
-          },
+            content: `You are a professional translator. Just translate text from ${sourceLang} to ${targetLang}, keeping the context. Do not add explanations, comments, or extra text.`,
+          },  
           {
             role: 'user',
             content: text,
