@@ -6,60 +6,24 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AccountModule } from 'src/account/account.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { PaymentModule } from './payment/payment.module';
-import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { FaucetModule } from './faucet/faucet.module';
-import * as path from 'path';
-import { LoggerModule } from 'nestjs-pino';
+import { LoggerConfig } from './utils/configs/logger.config';
+import { I18nConfig } from './utils/configs/i18n.config';
+import { ThrottlerConfig } from './utils/configs/throttler.config';
+import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 
 @Module({
   imports: [
-    // Limits each client to 10 requests per 1 second (ttl). excess requests will be throttled with a 429 error.
-    ThrottlerModule.forRoot([
-      {
-        ttl: 1,
-        limit: 10,
-      },
-    ]),
-    // i18n module for translations
-    I18nModule.forRoot({
-      fallbackLanguage: 'en', // Default language
-      loaderOptions: {
-        path: path.join(__dirname, '/i18n/'),
-        watch: true,
-      },
-      resolvers: [
-        AcceptLanguageResolver, // Accept-Language header resolver
-      ],
-    }),
-    LoggerModule.forRoot({
-      pinoHttp: {
-        name: 'InsightBackend',
-        level: 'trace',
-        transport: {
-          targets: [
-            {
-              level: 'trace',
-              target: 'pino-pretty',
-            },
-            {
-              level: process.env.NODE_ENV !== 'production' ? 'trace' : 'info',
-              target: 'pino-loki',
-              options: {
-                batching: true,
-                interval: 5,
-                host: process.env.LOKI_URL,
-                labels: {
-                  app: process.env.LOKI_LABELS,
-                  namespace: process.env.NODE_ENV || 'development',
-                },
-              },
-            },
-          ],
-        },
-      },
-    }),
+    // Modules with configs
+    ThrottlerConfig,
+    I18nConfig,
+    LoggerConfig,
     // Setup modules
-    PrismaModule,
+    PrometheusModule.register({
+      defaultLabels: {
+        app: 'insight-prometheus',
+      },
+    }),
     AccountModule,
     AuthModule,
     TranslationModule,
@@ -73,5 +37,6 @@ import { LoggerModule } from 'nestjs-pino';
       useClass: ThrottlerGuard,
     },
   ],
+  exports: [PrometheusModule],
 })
 export class AppModule {}

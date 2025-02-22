@@ -15,6 +15,8 @@ import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
+import { InjectMetric } from '@willsoto/nestjs-prometheus';
+import { Counter } from 'prom-client';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -25,6 +27,8 @@ export class TranslationGateway
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
+    @InjectMetric('translation_starts_total')
+    public translationStartsCounter: Counter<string>,
   ) {}
 
   @WebSocketServer()
@@ -60,6 +64,9 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
+    // Increment the counter
+    this.translationStartsCounter.inc();
+
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
     if (isAuthorized) {

@@ -24,6 +24,7 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   app.useGlobalPipes(new ValidationPipe());
   app.enableCors();
+  app.enableShutdownHooks();
   app.setGlobalPrefix('api');
 
   // setup swagger
