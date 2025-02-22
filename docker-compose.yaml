@@ -35,7 +35,7 @@ services:
       - /bin/sh
       - -c
       - |
-        sed 's|{HOST}|host.docker.internal|g; s|{API_PORT}|'"$API_PORT"'|g' /etc/prometheus/prometheus.yml.template > /etc/prometheus/prometheus.yml && \
+        sed 's|{HOST}|insight|g; s|{API_PORT}|'"$API_PORT"'|g' /etc/prometheus/prometheus.yml.template > /etc/prometheus/prometheus.yml && \
         exec prometheus --config.file=/etc/prometheus/prometheus.yml
     ports:
       - '9090:9090'
@@ -59,6 +59,15 @@ services:
           access: proxy 
           orgId: 1
           url: http://loki:3100
+          basicAuth: false
+          isDefault: false
+          version: 1
+          editable: false
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          orgId: 1
+          url: http://prometheus:9090
           basicAuth: false
           isDefault: true
           version: 1

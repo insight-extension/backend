@@ -16,7 +16,9 @@ import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
-import { Counter } from 'prom-client';
+import { Counter, Gauge, Summary } from 'prom-client';
+import { TranslationMetrics } from './constants/translation-metrics.enum';
+import { TranslationService } from './constants/translation-service.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -27,8 +29,12 @@ export class TranslationGateway
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
-    @InjectMetric('translation_starts_total')
-    public translationStartsCounter: Counter<string>,
+    @InjectMetric(TranslationMetrics.TRANSLATION_STARTS)
+    public translationStarts: Counter<string>,
+    @InjectMetric(TranslationMetrics.ACTIVE_TRANSLATIONS)
+    public activeTranslations: Gauge<string>,
+    @InjectMetric(TranslationMetrics.TRANSLATION_DELAY)
+    public translationDelay: Summary<string>,
   ) {}
 
   @WebSocketServer()
@@ -64,8 +70,11 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
-    // Increment the counter
-    this.translationStartsCounter.inc();
+    // Increment translation starts counter
+    this.translationStarts.inc();
+
+    // Increment active translation users
+    this.activeTranslations.inc();
 
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
@@ -85,6 +94,9 @@ export class TranslationGateway
   }
 
   async handleDisconnect(client: Socket) {
+    // Decrease active translation users
+    this.activeTranslations.dec();
+
     this.logger.debug(`Client disconnected: ${client.id}`);
     await this.cleanupSession(client.id);
     await this.paymentService.stopPaymentWithRequiredMethod(client);
@@ -201,6 +213,10 @@ export class TranslationGateway
   ): Promise<RealtimeSession> {
     this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
 
+    // Start the timer for transcription metric
+    const startTranscriptionMetric = Date.now();
+    let isTranscriptionMetricCalculated = false;
+
     const session = new RealtimeSession(apiKey);
 
     // Buffer for accumulating text received from the client
@@ -218,6 +234,17 @@ export class TranslationGateway
       // Extract complete sentences
       const completedSentences = this.extractCompletedSentences(clientBuffer);
       if (completedSentences.length > 0) {
+        // Calculate transcription metric for the first got sentence
+        if (!isTranscriptionMetricCalculated) {
+          const transcriptionDuration =
+            (Date.now() - startTranscriptionMetric) / 1000; // ms to s
+          this.translationDelay.observe(
+            { service: TranslationService.SPEECHMATICS },
+            transcriptionDuration,
+          );
+          isTranscriptionMetricCalculated = true;
+        }
+
         clientBuffer = this.getRemainingBuffer(clientBuffer);
 
         for (const sentence of completedSentences) {
@@ -304,6 +331,8 @@ export class TranslationGateway
     sourceLang: string = 'en',
     targetLang: string = 'ua',
   ): Promise<string> {
+    // Start the timer for translation delay
+    const translationStart = Date.now();
     try {
       const response = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -318,11 +347,16 @@ export class TranslationGateway
           },
         ],
       });
-
+      const translationDuration = (Date.now() - translationStart) / 1000;
+      this.translationDelay.observe(
+        { service: TranslationService.CHAT_GPT },
+        translationDuration,
+      );
       return response.choices[0].message.content.trim();
     } catch (error) {
       this.logger.error(`Error communicating with OpenAI API: ${error}`);
       return '';
+    } finally {
     }
   }
 }
