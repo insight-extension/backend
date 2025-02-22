@@ -15,7 +15,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
-import { RefundBalanceDto } from './dto/refund-balance.dto';
+import { RefundBalanceAmountDto } from './dto/refund-balance-amount.dto';
+import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 
 @ApiTags('payment')
 @UseGuards(JwtAuthGuard)
@@ -30,7 +31,7 @@ export class PaymentController {
   @ApiResponse({
     status: 201,
     description: `Returns transaction's signature`,
-    type: String,
+    type: RefundBalanceResponseDto,
   })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -38,8 +39,8 @@ export class PaymentController {
   @Post('refund-balance')
   async refundUserBalance(
     @JwtPublicKey() publicKey: string,
-    @Body() dto: RefundBalanceDto,
-  ): Promise<string> {
+    @Body() dto: RefundBalanceAmountDto,
+  ): Promise<RefundBalanceResponseDto> {
     return await this.paymentService.refundUserBalance(publicKey, dto.amount);
   }
 }
