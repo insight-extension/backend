@@ -26,7 +26,7 @@ import { TranslationMetrics } from './constants/translation-metrics.enum';
       name: TranslationMetrics.TRANSLATION_DELAY,
       help: 'Shows how much time it takes to translate a text',
       labelNames: ['service'],
-      maxAgeSeconds: 600, // 10 minutes for 
+      maxAgeSeconds: 600,
       ageBuckets: 5,
     }),
   ],
