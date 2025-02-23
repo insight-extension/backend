@@ -8,7 +8,7 @@ import { MetricNamesMiddleware } from './constants/metric-names-middleware.enum'
 
 @Injectable()
 export class MetricsMiddleware implements NestMiddleware {
-  private readonly appRoutes: Endpoint[];
+  private readonly appEndpoints: Endpoint[];
 
   constructor(
     private readonly discoveryService: DiscoveryService,
@@ -21,7 +21,7 @@ export class MetricsMiddleware implements NestMiddleware {
     @InjectMetric(MetricNamesMiddleware.REQUEST_DURATION)
     private readonly requestDuration: Summary<string>,
   ) {
-    this.appRoutes = this.getAllEndpoints();
+    this.appEndpoints = this.getAllEndpoints();
   }
 
   use(req: Request, res: Response, next: NextFunction): void {
@@ -32,7 +32,7 @@ export class MetricsMiddleware implements NestMiddleware {
     const method = req.method;
 
     // Check if the route exists in the application
-    const routeExists = this.appRoutes.some((endpoint) => {
+    const routeExists = this.appEndpoints.some((endpoint) => {
       return endpoint.path === route && endpoint.method === method;
     });
     if (!routeExists) {
@@ -62,7 +62,7 @@ export class MetricsMiddleware implements NestMiddleware {
    * and returns them in a structured format
    */
   private getAllEndpoints(): Endpoint[] {
-    const getRoutes: Endpoint[] = []; // Array to store extracted route information
+    const getEndpoints: Endpoint[] = []; // Array to store extracted route information
     const controllers = this.discoveryService.getControllers(); // Retrieve all registered controllers in the application
 
     controllers.forEach((wrapper) => {
@@ -99,7 +99,7 @@ export class MetricsMiddleware implements NestMiddleware {
           const method = RequestMethod[requestMethod]; // Convert request method enum to string
 
           if (method) {
-            getRoutes.push({
+            getEndpoints.push({
               // If methodPath is '/', use only baseUri, otherwise concatenate with methodPath
               // Also, remove any leading slashes in methodPath to avoid incorrect URLs
               path:
@@ -112,6 +112,6 @@ export class MetricsMiddleware implements NestMiddleware {
         });
       }
     });
-    return getRoutes; // Return the list of all discovered endpoints with their HTTP methods
+    return getEndpoints; // Return the list of all discovered endpoints with their HTTP methods
   }
 }

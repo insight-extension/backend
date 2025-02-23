@@ -6,3 +6,4 @@ scrape_configs:
     metrics_path: '/api/metrics'
     static_configs:
       - targets: ['{HOST}:{API_PORT}']
+    bearer_token: '{ADMIN_AUTH_TOKEN}'

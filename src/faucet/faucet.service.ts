@@ -19,6 +19,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { InsightFaucet } from './interfaces/insight_faucet';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 
 @Injectable()
@@ -33,7 +34,6 @@ export class FaucetService {
   private readonly USDC_TOKEN_ADDRESS = new PublicKey(
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   );
-  private readonly RAW_SUM_TO_CLAIM_PER_DAY = 10_000_000;
   constructor(
     private readonly i18n: I18nService,
     // cacheManager<key: string(ip), value: Date(renewDate)>
@@ -52,9 +52,6 @@ export class FaucetService {
     );
     setProvider(this.anchorProvider);
     this.program = new Program(idl as InsightFaucet, this.anchorProvider);
-
-    // Configure the faucet
-    // this.configureFaucet(this.RAW_SUM_TO_CLAIM_PER_DAY);
   }
 
   // TODO: Improve error handling. We should also check if the public key
@@ -99,9 +96,29 @@ export class FaucetService {
     }
   }
 
+  // Configure the faucet sum that can be claimed per day
+  async configureFaucet(
+    rawAmountToClaimPerDay: number,
+  ): Promise<ConfigureFaucetResponseDto> {
+    try {
+      const transaction = await this.program.methods
+        .initialize(new anchor.BN(rawAmountToClaimPerDay))
+        .accounts({
+          token: this.USDC_TOKEN_ADDRESS,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([this.master])
+        .rpc();
+      this.logger.log(`Faucet has been configured: [${transaction}]`);
+      return { transaction };
+    } catch (error) {
+      this.logger.error(`Error configuring the faucet: [${error}]`);
+    }
+  }
+
   private async claimUsdcThroughProgram(publicKey: string): Promise<string> {
     try {
-      const tx = await this.program.methods
+      const transaction = await this.program.methods
         .claim()
         .accounts({
           to: new PublicKey(publicKey),
@@ -110,27 +127,9 @@ export class FaucetService {
         })
         .signers([this.master])
         .rpc();
-      return tx;
+      return transaction;
     } catch (error) {
       throw new BadRequestException(`Transaction failed: ${error.message}`);
-    }
-  }
-
-  // Configure the faucet sum that can be claimed per day
-  private async configureFaucet(rawSumToClaimPerDay: number): Promise<string> {
-    try {
-      const tx = await this.program.methods
-        .initialize(new anchor.BN(rawSumToClaimPerDay))
-        .accounts({
-          token: this.USDC_TOKEN_ADDRESS,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .signers([this.master])
-        .rpc();
-      this.logger.log(`Faucet has been configured: [${tx}]`);
-      return tx;
-    } catch (error) {
-      this.logger.error(`Error configuring the faucet: [${error}]`);
     }
   }
 }

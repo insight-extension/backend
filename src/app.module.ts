@@ -20,6 +20,7 @@ import {
   MetricsMiddlewareSummaryProvider,
 } from './utils/configs/metrics-middleware.config';
 import { PrometheusConfig } from './utils/configs/prometheus.config';
+import { ApiTokenAuthMiddleware } from './utils/middlewares/api-token-auth.middleware';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { PrometheusConfig } from './utils/configs/prometheus.config';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    // Providers for metrics middleware
     MetricsMiddlewareCounterProvider,
     MetricsMiddlewareSummaryProvider,
   ],
@@ -49,9 +51,15 @@ import { PrometheusConfig } from './utils/configs/prometheus.config';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    // Apply metrics middleware to all routes except the metrics endpoint
     consumer
       .apply(MetricsMiddleware)
       .exclude({ path: 'metrics', method: RequestMethod.GET }) // Exclude metrics endpoint
       .forRoutes('*');
+
+    // Apply API token auth middleware to the admin-only routes
+    consumer
+      .apply(ApiTokenAuthMiddleware)
+      .forRoutes('metrics', 'faucet/configure');
   }
 }

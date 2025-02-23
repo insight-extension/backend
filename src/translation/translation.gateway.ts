@@ -356,7 +356,6 @@ export class TranslationGateway
     } catch (error) {
       this.logger.error(`Error communicating with OpenAI API: ${error}`);
       return '';
-    } finally {
     }
   }
 }
