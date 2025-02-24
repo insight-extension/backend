@@ -18,7 +18,8 @@ import { PaymentService } from 'src/payment/payment.service';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { Counter, Gauge, Summary } from 'prom-client';
 import { TranslationMetrics } from './constants/translation-metrics.enum';
-import { TranslationService } from './constants/translation-service.enum';
+import { TranslationServices } from './constants/translation-services.enum';
+import { TranslationMetricLabels } from './constants/translation-metric-labels.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -29,12 +30,19 @@ export class TranslationGateway
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
+    // Prometheus metrics
+    // TODO: add target and source languages to the metrics labels
     @InjectMetric(TranslationMetrics.TRANSLATION_STARTS)
-    public translationStarts: Counter<string>,
+    public translationStarts: Counter<TranslationMetricLabels>,
+
     @InjectMetric(TranslationMetrics.ACTIVE_TRANSLATIONS)
-    public activeTranslations: Gauge<string>,
+    public activeTranslations: Gauge<TranslationMetricLabels>,
+
     @InjectMetric(TranslationMetrics.TRANSLATION_DELAY)
-    public translationDelay: Summary<string>,
+    public translationDelay: Summary<TranslationMetricLabels>,
+
+    @InjectMetric(TranslationMetrics.TRANSLATION_USING)
+    public translationUsing: Summary<TranslationMetricLabels>,
   ) {}
 
   @WebSocketServer()
@@ -60,6 +68,10 @@ export class TranslationGateway
   // OpenAI client
   private openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
 
+  // For tracking translation start date
+  // Map<string(clientId), Date>
+  private translationStartDate: Map<string, Date> = new Map();
+
   afterInit() {
     this.logger.log('Translation gateway initialized');
 
@@ -70,10 +82,8 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
-    // Increment translation starts counter
+    // Increment Prometheus metrics
     this.translationStarts.inc();
-
-    // Increment active translation users
     this.activeTranslations.inc();
 
     // Check if user is authorized
@@ -81,6 +91,9 @@ export class TranslationGateway
     if (isAuthorized) {
       // Start translation with required payment method
       await this.paymentService.startPaymentWithRequiredMethod(client);
+
+      // Store the translation start date
+      this.translationStartDate.set(client.id, new Date());
 
       client.on('audioData', async (data: any) => {
         if (data instanceof Uint8Array) {
@@ -94,10 +107,22 @@ export class TranslationGateway
   }
 
   async handleDisconnect(client: Socket) {
-    // Decrease active translation users
+    this.logger.debug(`Client disconnected: ${client.id}`);
     this.activeTranslations.dec();
 
-    this.logger.debug(`Client disconnected: ${client.id}`);
+    // Calculate the duration of translation usage
+    const startDate = this.translationStartDate.get(client.id);
+    if (startDate) {
+      const durationInSeconds = (Date.now() - startDate.getTime()) / 1000; // ms to s
+      const subscriptionType = this.paymentService.getSubscriptionType(client);
+
+      this.translationUsing.observe(
+        { subscription_type: subscriptionType },
+        durationInSeconds,
+      );
+      this.translationStartDate.delete(client.id);
+    }
+
     await this.cleanupSession(client.id);
     await this.paymentService.stopPaymentWithRequiredMethod(client);
   }
@@ -239,7 +264,7 @@ export class TranslationGateway
           const transcriptionDuration =
             (Date.now() - startTranscriptionMetric) / 1000; // ms to s
           this.translationDelay.observe(
-            { service: TranslationService.SPEECHMATICS },
+            { service: TranslationServices.SPEECHMATICS },
             transcriptionDuration,
           );
           isTranscriptionMetricCalculated = true;
@@ -349,7 +374,7 @@ export class TranslationGateway
       });
       const translationDuration = (Date.now() - translationStart) / 1000;
       this.translationDelay.observe(
-        { service: TranslationService.CHAT_GPT },
+        { service: TranslationServices.CHAT_GPT },
         translationDuration,
       );
       return response.choices[0].message.content.trim();

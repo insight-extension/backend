@@ -1,4 +1,4 @@
-import { NestMiddleware } from '@nestjs/common';
+import { HttpStatus, NestMiddleware } from '@nestjs/common';
 import 'dotenv/config';
 import { NextFunction, Request, Response } from 'express';
 
@@ -16,7 +16,7 @@ export class ApiTokenAuthMiddleware implements NestMiddleware {
 
     // Check if the header is present and starts with 'Bearer '
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).send('Unauthorized');
+      res.status(HttpStatus.UNAUTHORIZED).send('Unauthorized');
       return;
     }
 
@@ -25,7 +25,7 @@ export class ApiTokenAuthMiddleware implements NestMiddleware {
 
     // Check if the token is valid
     if (token !== this.validToken) {
-      res.status(401).send('Unauthorized');
+      res.status(HttpStatus.UNAUTHORIZED).send('Unauthorized');
       return;
     }
     // Continue processing the request

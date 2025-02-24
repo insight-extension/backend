@@ -5,6 +5,7 @@ import { DiscoveryService, Reflector } from '@nestjs/core';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { MetricNamesMiddleware } from './constants/metric-names-middleware.enum';
+import { MetricLabelsMiddleware } from './constants/metric-labels-middleware.enum';
 
 @Injectable()
 export class MetricsMiddleware implements NestMiddleware {
@@ -16,10 +17,10 @@ export class MetricsMiddleware implements NestMiddleware {
 
     // Inject the Prometheus metrics
     @InjectMetric(MetricNamesMiddleware.REQUESTS_TOTAL)
-    private readonly requestCounter: Counter<string>,
+    private readonly requestCounter: Counter<MetricLabelsMiddleware>,
 
     @InjectMetric(MetricNamesMiddleware.REQUEST_DURATION)
-    private readonly requestDuration: Summary<string>,
+    private readonly requestDuration: Summary<MetricLabelsMiddleware>,
   ) {
     this.appEndpoints = this.getAllEndpoints();
   }

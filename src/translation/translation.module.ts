@@ -9,6 +9,7 @@ import {
   makeSummaryProvider,
 } from '@willsoto/nestjs-prometheus';
 import { TranslationMetrics } from './constants/translation-metrics.enum';
+import { TranslationMetricLabels } from './constants/translation-metric-labels.enum';
 
 @Module({
   providers: [
@@ -25,7 +26,14 @@ import { TranslationMetrics } from './constants/translation-metrics.enum';
     makeSummaryProvider({
       name: TranslationMetrics.TRANSLATION_DELAY,
       help: 'Shows how much time it takes to translate a text',
-      labelNames: ['service'],
+      labelNames: [TranslationMetricLabels.SERVICE],
+      maxAgeSeconds: 600,
+      ageBuckets: 5,
+    }),
+    makeSummaryProvider({
+      name: TranslationMetrics.TRANSLATION_USING,
+      help: 'Shows how much time users using translation',
+      labelNames: [TranslationMetricLabels.SUBSCRIPTION_TYPE],
       maxAgeSeconds: 600,
       ageBuckets: 5,
     }),
