@@ -7,6 +7,12 @@ import { InjectMetric } from '@willsoto/nestjs-prometheus';
 import { MetricNamesMiddleware } from './constants/metric-names-middleware.enum';
 import { MetricLabelsMiddleware } from './constants/metric-labels-middleware.enum';
 
+/*
+ * This middleware is used for all registered routes (excluding /metrics)
+ * to collect the total number of requests
+ * and the duration of each request in the application.
+ */
+
 @Injectable()
 export class MetricsMiddleware implements NestMiddleware {
   private readonly appEndpoints: Endpoint[];
@@ -29,7 +35,7 @@ export class MetricsMiddleware implements NestMiddleware {
     // Set request start time
     const start = process.hrtime();
 
-    const route = req.originalUrl.split('?')[0]; // Clean the route from query parameters
+    let route = req.originalUrl.split('?')[0]; // Clean the route from query parameters
     const method = req.method;
 
     // Check if the route exists in the application
@@ -37,7 +43,7 @@ export class MetricsMiddleware implements NestMiddleware {
       return endpoint.path === route && endpoint.method === method;
     });
     if (!routeExists) {
-      return next();
+      route = 'unknown';
     }
 
     // Set response finish callback
@@ -60,7 +66,9 @@ export class MetricsMiddleware implements NestMiddleware {
 
   /*
    * This method retrieves all the endpoints in the application
-   * and returns them in a structured format
+   * and returns them in a structured format.
+   * Used for checking if the incoming request is a valid route
+   * to prevent high cardinality in Prometheus metrics
    */
   private getAllEndpoints(): Endpoint[] {
     const getEndpoints: Endpoint[] = []; // Array to store extracted route information

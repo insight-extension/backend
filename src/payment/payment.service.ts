@@ -4,7 +4,6 @@ import {
   Inject,
   Injectable,
   Logger,
-  OnModuleInit,
 } from '@nestjs/common';
 import * as anchor from '@coral-xyz/anchor';
 import {
@@ -13,7 +12,7 @@ import {
   setProvider,
   Wallet,
 } from '@coral-xyz/anchor';
-import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import 'dotenv/config';
 import * as idl from './interfaces/deposit_program.json';
 import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
@@ -24,7 +23,6 @@ import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
@@ -42,9 +40,7 @@ export class PaymentService {
   private readonly anchorProviderWallet: Wallet;
   private readonly master: Keypair;
   private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
-  private readonly USDC_TOKEN_ADDRESS = new PublicKey(
-    '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-  );
+  private readonly TOKEN_ADDRESS = new PublicKey(process.env.TOKEN_ADDRESS);
   // Prices in raw format
   private readonly USDC_PRICE_PER_MINUTE =
     SubscriptionPrice.PER_USAGE * 1_000_000;
@@ -66,7 +62,7 @@ export class PaymentService {
     this.master = Keypair.fromSecretKey(
       new Uint8Array(JSON.parse(process.env.MASTER_KEY ?? '')),
     );
-    this.connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+    this.connection = new Connection(process.env.RPC_URL, 'confirmed');
     this.anchorProviderWallet = new Wallet(this.master);
     this.anchorProvider = new AnchorProvider(
       this.connection,
@@ -119,7 +115,7 @@ export class PaymentService {
 
       // ATA address where user's balance is stored
       const userTimedVaultAddress = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
@@ -260,7 +256,7 @@ export class PaymentService {
 
       // ATA address where user balance is stored
       const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
@@ -598,7 +594,7 @@ export class PaymentService {
 
       // ATA address where user's balance is stored
       const userTimedVaultAddress = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
@@ -838,7 +834,7 @@ export class PaymentService {
         .payPerMinuteAndUnfreezeBalance(new anchor.BN(priceInRawUSDC))
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -862,7 +858,7 @@ export class PaymentService {
         )
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -882,7 +878,7 @@ export class PaymentService {
         .refund(amountInRawUSDC)
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
