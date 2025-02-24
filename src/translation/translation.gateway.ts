@@ -16,6 +16,7 @@ import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
 import { ExtraHeaders } from './constants/extra-headers.enum';
+import { TranslationLanguages } from './constants/translation-languages.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -139,7 +140,7 @@ export class TranslationGateway
           session = await this.createSpeechmaticsSession(apiKey, client.id);
         } catch (error) {
           this.apiKeyUsage.set(apiKey, false);
-          throw new Error(error);
+          throw new Error(error.message);
         }
 
         // Check if the client disconnected while the session was being created
@@ -208,11 +209,17 @@ export class TranslationGateway
       client,
       ExtraHeaders.TARGET_LANGUAGE,
     );
+    this.logger.debug(
+      `Source language: ${sourceLanguage}, Target language: ${targetLanguage}`,
+    );
 
-    if (sourceLanguage.length !== 2 || targetLanguage.length !== 2) {
-      throw new Error('Invalid language codes specified.');
+    // Validate languages
+    if (
+      !this.isValidTranslationLanguage(sourceLanguage) ||
+      !this.isValidTranslationLanguage(targetLanguage)
+    ) {
+      throw new Error('Invalid source or target language.');
     }
-
     if (sourceLanguage === targetLanguage) {
       throw new Error('Source and target languages are the same.');
     }
@@ -325,7 +332,7 @@ export class TranslationGateway
           {
             role: 'system',
             content: `You are a professional translator. Just translate text from ${sourceLang} to ${targetLang}, keeping the context. Do not add explanations, comments, or extra text.`,
-          },  
+          },
           {
             role: 'user',
             content: text,
@@ -348,5 +355,13 @@ export class TranslationGateway
     }
     const headerValue = Array.isArray(header) ? header[0] : header;
     return headerValue;
+  }
+
+  private isValidTranslationLanguage(
+    language: string,
+  ): language is TranslationLanguages {
+    return Object.values(TranslationLanguages).includes(
+      language as TranslationLanguages,
+    );
   }
 }

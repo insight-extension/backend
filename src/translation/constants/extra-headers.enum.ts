@@ -1,4 +1,4 @@
 export enum ExtraHeaders {
-  SOURCE_LANGUAGE = 'Source-Language',
-  TARGET_LANGUAGE = 'Target-Language',
+  SOURCE_LANGUAGE = 'source-language',
+  TARGET_LANGUAGE = 'target-language',
 }
