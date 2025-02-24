@@ -18,10 +18,12 @@ import { TranslationMetricLabels } from './constants/translation-metric-labels.e
     makeCounterProvider({
       name: TranslationMetrics.TRANSLATION_STARTS,
       help: 'Number of translation starts',
+      labelNames: [TranslationMetricLabels.SUBSCRIPTION_TYPE],
     }),
     makeGaugeProvider({
       name: TranslationMetrics.ACTIVE_TRANSLATIONS,
       help: 'Shows how much users using translation at the moment',
+      labelNames: [TranslationMetricLabels.SUBSCRIPTION_TYPE],
     }),
     makeSummaryProvider({
       name: TranslationMetrics.TRANSLATION_DELAY,

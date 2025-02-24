@@ -20,6 +20,7 @@ import { Counter, Gauge, Summary } from 'prom-client';
 import { TranslationMetrics } from './constants/translation-metrics.enum';
 import { TranslationServices } from './constants/translation-services.enum';
 import { TranslationMetricLabels } from './constants/translation-metric-labels.enum';
+import { SubscriptionType } from 'src/payment/constants/subscription-type.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -82,9 +83,17 @@ export class TranslationGateway
   }
 
   async handleConnection(client: Socket) {
-    // Increment Prometheus metrics
-    this.translationStarts.inc();
-    this.activeTranslations.inc();
+    let subscriptionType = this.paymentService.getSubscriptionTypeValue(client);
+
+    // Check if the subscription type is valid
+    if (!this.isValidSubscriptionType(subscriptionType)) {
+      this.logger.debug(`Invalid subscription type: [${subscriptionType}]`);
+      subscriptionType = 'unknown';
+    }
+
+    // Increment Prometheus metrics with subscription type label
+    this.translationStarts.inc({ subscription_type: subscriptionType });
+    this.activeTranslations.inc({ subscription_type: subscriptionType });
 
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
@@ -114,7 +123,8 @@ export class TranslationGateway
     const startDate = this.translationStartDate.get(client.id);
     if (startDate) {
       const durationInSeconds = (Date.now() - startDate.getTime()) / 1000; // ms to s
-      const subscriptionType = this.paymentService.getSubscriptionType(client);
+      const subscriptionType =
+        this.paymentService.getSubscriptionTypeValue(client);
 
       this.translationUsing.observe(
         { subscription_type: subscriptionType },
@@ -358,6 +368,7 @@ export class TranslationGateway
   ): Promise<string> {
     // Start the timer for translation delay
     const translationStart = Date.now();
+
     try {
       const response = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -372,6 +383,7 @@ export class TranslationGateway
           },
         ],
       });
+
       const translationDuration = (Date.now() - translationStart) / 1000;
       this.translationDelay.observe(
         { service: TranslationServices.CHAT_GPT },
@@ -382,5 +394,8 @@ export class TranslationGateway
       this.logger.error(`Error communicating with OpenAI API: ${error}`);
       return '';
     }
+  }
+  private isValidSubscriptionType(value: string): value is SubscriptionType {
+    return Object.values(SubscriptionType).includes(value as SubscriptionType);
   }
 }

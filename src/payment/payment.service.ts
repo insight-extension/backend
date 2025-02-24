@@ -162,17 +162,22 @@ export class PaymentService {
   }
 
   // Get required payment method from client handshake's header
-  getSubscriptionType(client: Socket): string {
+  getSubscriptionTypeValue(client: Socket): string {
     const subscriptionType = client.request.headers.subscription;
     const normalizedSubscriptionType = Array.isArray(subscriptionType)
       ? subscriptionType[0]
       : subscriptionType;
+
+    if (!normalizedSubscriptionType) {
+      this.logger.debug('Subscription type not found in client handshake');
+      return 'unknown';
+    }
     return normalizedSubscriptionType;
   }
 
   async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
     try {
-      const subscriptionType = this.getSubscriptionType(client);
+      const subscriptionType = this.getSubscriptionTypeValue(client);
 
       // Start payment method based on subscription type
       switch (subscriptionType) {
@@ -208,7 +213,7 @@ export class PaymentService {
   async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
     try {
       // Get payment method from client handshake's header
-      const subscriptionType = this.getSubscriptionType(client);
+      const subscriptionType = this.getSubscriptionTypeValue(client);
 
       // Stop payment method based on subscription type
       switch (subscriptionType) {
