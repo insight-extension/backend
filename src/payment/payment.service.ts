@@ -31,6 +31,7 @@ import { I18nService } from 'nestjs-i18n';
 import { AccountType } from './constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { DepositProgram } from './interfaces/deposit_program';
+import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 
 @Injectable()
 export class PaymentService {
@@ -92,7 +93,10 @@ export class PaymentService {
     // );
   }
 
-  async refundUserBalance(publicKey: string, amount: number): Promise<string> {
+  async refundUserBalance(
+    publicKey: string,
+    amount: number,
+  ): Promise<RefundBalanceResponseDto> {
     try {
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
@@ -141,7 +145,7 @@ export class PaymentService {
       this.logger.debug(
         `User [${userPublicKey.toString()}] balance [${userVaultBalance}] refunded`,
       );
-      return transaction;
+      return { signature: transaction };
     } catch (error) {
       this.logger.error(`Error refunding user's balance: [${error}]`);
 

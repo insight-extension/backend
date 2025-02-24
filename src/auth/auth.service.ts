@@ -1,14 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { VerifyDto } from './dto/verify.dto';
-import { Verify } from './types/verify.type';
-import { Login } from './types/login.type';
-import { ClaimDto } from './dto/claim.dto';
+import { ClaimNonceDto as ClaimNonceDto } from './dto/claim-nonce.dto';
 import { randomBytes } from 'crypto';
 import { ValidateSignatureDto } from './dto/validate-signature.dto';
 import bs58 from 'bs58';
@@ -21,6 +20,9 @@ import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
 import { JwtExpire } from './constants/jwt-expire.enum';
 import 'dotenv/config';
+import { RefreshTokenResponseDto } from './dto/refresh-token-response.dto';
+import { VerifyResponseDto } from './dto/verify-response.dto';
+import { ClaimNonceResponseDto } from './dto/claim-nonce-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -35,7 +37,7 @@ export class AuthService {
   ) {}
 
   // Validate signed signature from client and return jwt tokens
-  async verify(dto: VerifyDto): Promise<Verify> {
+  async verify(dto: VerifyDto): Promise<VerifyResponseDto> {
     const account = await this.validateSignature(dto);
     if (!account) {
       this.logger.error('Invalid signature detected', dto);
@@ -60,33 +62,24 @@ export class AuthService {
   }
 
   // Send nonce to client for signing
-  async claim(dto: ClaimDto): Promise<Login> {
+  async claimNonce(dto: ClaimNonceDto): Promise<ClaimNonceResponseDto> {
     const { publicKey, nonce } = await this.generateNonceForPublicKey({
       publicKey: dto.publicKey,
     });
 
     return {
-      publicKey: publicKey,
-      nonce: nonce,
+      publicKey,
+      nonce,
     };
   }
 
   // Refresh access and refresh tokens by providing refresh token
-  async refreshToken(refreshToken: string): Promise<Verify> {
+  async refreshToken(refreshToken: string): Promise<RefreshTokenResponseDto> {
     try {
-      const payload = this.jwtService.verify(refreshToken, {
+      // Throws error if token is invalid
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: process.env.JWT_SECRET,
       });
-
-      const account = await this.accountService.findOneByPublicKey(
-        payload.publicKey,
-      );
-      if (!account) {
-        this.logger.error(
-          `Account not found for publicKey: ${payload.publicKey}`,
-        );
-        throw new Error(this.i18n.t('auth.accountNotFound'));
-      }
 
       const newPayload = { publicKey: payload.publicKey };
 
@@ -96,7 +89,7 @@ export class AuthService {
       };
     } catch (error) {
       this.logger.error('Invalid refresh token', error);
-      throw new Error(this.i18n.t('auth.invalidRefreshToken'));
+      throw new ForbiddenException(this.i18n.t('auth.invalidRefreshToken'));
     }
   }
 
@@ -154,13 +147,13 @@ export class AuthService {
 
   private async generateAccessToken(payload: any): Promise<string> {
     return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.ACCESS_TOKEN}m`,
+      expiresIn: `${JwtExpire.ACCESS_TOKEN}`,
     });
   }
 
   private async generateRefreshToken(payload: any): Promise<string> {
     return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.REFRESH_TOKEN}d`,
+      expiresIn: `${JwtExpire.REFRESH_TOKEN}`,
     });
   }
 

@@ -19,6 +19,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { InsightFaucet } from './interfaces/insight_faucet';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 
 @Injectable()
 export class FaucetService {
@@ -58,7 +59,7 @@ export class FaucetService {
 
   // TODO: Improve error handling. We should also check if the public key
   // has already claimed the faucet and handle the error if the transaction fails.
-  async claim(publicKey: string, ip: string): Promise<string> {
+  async claim(publicKey: string, ip: string): Promise<ClaimFaucetResponseDto> {
     try {
       // Check if the IP address has already claimed the faucet
       const cachedRenewDate: Date | undefined = await this.cacheManager.get(ip);
@@ -91,7 +92,7 @@ export class FaucetService {
       this.logger.debug(
         `IP address has been set to cache for ip: [${ip}] public key: [${publicKey}]`,
       );
-      return transaction;
+      return { signature: transaction };
     } catch (error) {
       this.logger.warn('Failed to claim a faucet: ', error);
       throw new ForbiddenException(error.message);

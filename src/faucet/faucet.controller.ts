@@ -15,6 +15,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 
 @ApiTags('faucet')
 @Controller('faucet')
@@ -28,7 +29,7 @@ export class FaucetController {
   @ApiResponse({
     status: 201,
     description: `Returns transaction's signature`,
-    type: String,
+    type: ClaimFaucetResponseDto,
   })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -37,7 +38,7 @@ export class FaucetController {
   async claim(
     @JwtPublicKey() publicKey: string,
     @Ip() ip: string,
-  ): Promise<string> {
+  ): Promise<ClaimFaucetResponseDto> {
     return await this.faucetService.claim(publicKey, ip);
   }
 }
