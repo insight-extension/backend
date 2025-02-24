@@ -18,11 +18,13 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
-import { JwtExpire } from './constants/jwt-expire.enum';
+import { JwtExpire as JwtExpiration } from './constants/jwt-expire.enum';
 import 'dotenv/config';
 import { RefreshTokenResponseDto } from './dto/refresh-token-response.dto';
 import { VerifyResponseDto } from './dto/verify-response.dto';
 import { ClaimNonceResponseDto } from './dto/claim-nonce-response.dto';
+import { JwtPayload } from './types/jwt-payload.type';
+import { PublicKeyPayload } from './types/publickey-payload.type';
 
 @Injectable()
 export class AuthService {
@@ -76,12 +78,30 @@ export class AuthService {
   // Refresh access and refresh tokens by providing refresh token
   async refreshToken(refreshToken: string): Promise<RefreshTokenResponseDto> {
     try {
-      // Throws error if token is invalid
-      const payload = await this.jwtService.verifyAsync(refreshToken, {
+      const payload: JwtPayload = this.jwtService.verify(refreshToken, {
         secret: process.env.JWT_SECRET,
       });
 
-      const newPayload = { publicKey: payload.publicKey };
+      // Check if the token is a refresh token
+      const tokenExpirationValue = (payload.exp - payload.iat) / 60 / 60 / 24; // in days
+      if (tokenExpirationValue !== JwtExpiration.REFRESH_TOKEN) {
+        this.logger.debug(
+          `Invalid refresh token expiration value: ${tokenExpirationValue}`,
+        );
+        throw new Error(this.i18n.t('auth.invalidRefreshToken'));
+      }
+
+      const account = await this.accountService.findOneByPublicKey(
+        payload.publicKey,
+      );
+      if (!account) {
+        this.logger.error(
+          `Account not found for publicKey: ${payload.publicKey}`,
+        );
+        throw new Error(this.i18n.t('auth.accountNotFound'));
+      }
+
+      const newPayload: PublicKeyPayload = { publicKey: payload.publicKey };
 
       return {
         accessToken: await this.generateAccessToken(newPayload),
@@ -124,9 +144,7 @@ export class AuthService {
   private async generateNonceForPublicKey(
     dto: GetNonceDto,
   ): Promise<AccountCandidates> {
-    const existingNonce: string | undefined = await this.cacheManager.get(
-      dto.publicKey,
-    );
+    const existingNonce: string = await this.cacheManager.get(dto.publicKey);
     if (existingNonce) {
       this.logger.debug(`Nonce found for publicKey: ${dto.publicKey}`);
       return {
@@ -145,15 +163,19 @@ export class AuthService {
     };
   }
 
-  private async generateAccessToken(payload: any): Promise<string> {
+  private async generateAccessToken(
+    payload: PublicKeyPayload,
+  ): Promise<string> {
     return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.ACCESS_TOKEN}`,
+      expiresIn: `${JwtExpiration.ACCESS_TOKEN}m`,
     });
   }
 
-  private async generateRefreshToken(payload: any): Promise<string> {
+  private async generateRefreshToken(
+    payload: PublicKeyPayload,
+  ): Promise<string> {
     return await this.jwtService.signAsync(payload, {
-      expiresIn: `${JwtExpire.REFRESH_TOKEN}`,
+      expiresIn: `${JwtExpiration.REFRESH_TOKEN}d`,
     });
   }
 
