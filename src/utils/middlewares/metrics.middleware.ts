@@ -1,4 +1,10 @@
-import { Injectable, NestMiddleware, RequestMethod } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NestMiddleware,
+  OnModuleInit,
+  RequestMethod,
+} from '@nestjs/common';
 import { Counter, Summary } from 'prom-client';
 import { Request, Response, NextFunction } from 'express';
 import { DiscoveryService, Reflector } from '@nestjs/core';
@@ -14,8 +20,9 @@ import { MetricLabelsMiddleware } from './constants/metric-labels-middleware.enu
  */
 
 @Injectable()
-export class MetricsMiddleware implements NestMiddleware {
+export class MetricsMiddleware implements NestMiddleware, OnModuleInit {
   private readonly appEndpoints: Endpoint[];
+  private readonly logger = new Logger(MetricsMiddleware.name);
 
   constructor(
     private readonly discoveryService: DiscoveryService,
@@ -29,6 +36,9 @@ export class MetricsMiddleware implements NestMiddleware {
     private readonly requestDuration: Summary<MetricLabelsMiddleware>,
   ) {
     this.appEndpoints = this.getAllEndpoints();
+  }
+  onModuleInit() {
+    this.logger.log('Metrics middleware initialized');
   }
 
   use(req: Request, res: Response, next: NextFunction): void {

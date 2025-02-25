@@ -1,4 +1,9 @@
-import { HttpStatus, NestMiddleware } from '@nestjs/common';
+import {
+  HttpStatus,
+  Logger,
+  NestMiddleware,
+  OnModuleInit,
+} from '@nestjs/common';
 import 'dotenv/config';
 import { NextFunction, Request, Response } from 'express';
 
@@ -7,8 +12,13 @@ import { NextFunction, Request, Response } from 'express';
  * for protected admin-only routes
  */
 
-export class ApiTokenAuthMiddleware implements NestMiddleware {
+export class ApiTokenAuthMiddleware implements NestMiddleware, OnModuleInit {
   private readonly validToken = process.env.ADMIN_AUTH_TOKEN;
+  private readonly logger = new Logger(ApiTokenAuthMiddleware.name);
+
+  onModuleInit() {
+    this.logger.log(`ApiTokenAuthMiddleware initialized`);
+  }
 
   use(req: Request, res: Response, next: NextFunction): void {
     // Extract the token from the Authorization header
@@ -16,6 +26,7 @@ export class ApiTokenAuthMiddleware implements NestMiddleware {
 
     // Check if the header is present and starts with 'Bearer '
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      this.logger.warn('Unauthorized request');
       res.status(HttpStatus.UNAUTHORIZED).send('Unauthorized');
       return;
     }
@@ -25,9 +36,11 @@ export class ApiTokenAuthMiddleware implements NestMiddleware {
 
     // Check if the token is valid
     if (token !== this.validToken) {
+      this.logger.warn('Unauthorized request');
       res.status(HttpStatus.UNAUTHORIZED).send('Unauthorized');
       return;
     }
+    this.logger.log('Authorized admin request');
     // Continue processing the request
     next();
   }
