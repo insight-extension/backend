@@ -1,7 +1,7 @@
 {
   "errors": {
     "insufficientBalance": "Insufficient balance",
-    "balanceIsFrozen":"Balance is frozen",
+    "balanceIsFrozen": "Balance is frozen",
     "invalidSubscriptionType": "Invalid subscription type",
     "noFreeHoursAvailable": "Free hours are not available",
     "fundsRanOut": "Funds ran out",
@@ -12,8 +12,7 @@
     "userInfoNotFound": "Failed to fetch user info"
   },
   "messages": {
-    "timedBalanceRefundFailed": "Timed balance refunding failed",
-    "subscriptionBalanceRefundFailed": "Subscription refunding failed",
+    "BalanceRefundFailed": "Balance refunding failed",
     "startTranslationFailed": "Failed to start translation with the selected payment method",
     "stopTranslationFailed": "Failed to end translation with the selected payment method",
     "startPayPerUsageFailed": "Failed to start pay per usage",
@@ -22,7 +21,6 @@
     "stopFreeHoursFailed": "Failed to end free hours usage",
     "startPayPerHoursFailed": "Failed to start pay per hours usage",
     "stopPayPerHoursFailed": "Failed to end pay per hours usage",
-    "startSubscriptionFailed": "Failed to start subscription",
     "errorDuringPayPerUsage": "An error occurred while using pay per usage",
     "errorDuringPayPerHours": "An error occurred while using pay per hours",
     "errorDuringFreeHours": "An error occurred while using free hours"

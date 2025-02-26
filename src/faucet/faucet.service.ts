@@ -30,9 +30,7 @@ export class FaucetService {
   private readonly anchorProviderWallet: Wallet;
   private readonly master: Keypair;
   private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
-  private readonly USDC_TOKEN_ADDRESS = new PublicKey(
-    '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-  );
+  private readonly TOKEN_ADDRESS = new PublicKey(process.env.TOKEN_ADDRESS);
   private readonly RAW_SUM_TO_CLAIM_PER_DAY = 10_000_000;
   constructor(
     private readonly i18n: I18nService,
@@ -41,9 +39,9 @@ export class FaucetService {
   ) {
     // Setup program
     this.master = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(process.env.MASTER_KEY ?? '')),
+      new Uint8Array(JSON.parse(process.env.MASTER_KEY)),
     );
-    this.connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+    this.connection = new Connection(process.env.RPC_URL, 'confirmed');
     this.anchorProviderWallet = new Wallet(this.master);
     this.anchorProvider = new AnchorProvider(
       this.connection,
@@ -79,7 +77,7 @@ export class FaucetService {
       }
 
       // Claim the faucet and return the transaction signature
-      const transaction = await this.claimUsdcThroughProgram(publicKey);
+      const transaction = await this.claimTokensThroughProgram(publicKey);
       this.logger.debug(`[${publicKey}] claimed the faucet: [${transaction}]`);
 
       const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -99,13 +97,13 @@ export class FaucetService {
     }
   }
 
-  private async claimUsdcThroughProgram(publicKey: string): Promise<string> {
+  private async claimTokensThroughProgram(publicKey: string): Promise<string> {
     try {
       const tx = await this.program.methods
         .claim()
         .accounts({
           to: new PublicKey(publicKey),
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -122,7 +120,7 @@ export class FaucetService {
       const tx = await this.program.methods
         .initialize(new anchor.BN(rawSumToClaimPerDay))
         .accounts({
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([this.master])

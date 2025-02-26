@@ -24,7 +24,7 @@ export class FaucetController {
 
   @ApiOperation({
     summary:
-      'Allow user to claim USDC. Body is empty, gets publicKey from JWT and IP from request',
+      'Allow user to claim tokens. Body is empty, gets publicKey from JWT and IP from request',
   })
   @ApiResponse({
     status: 201,

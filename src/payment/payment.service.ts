@@ -1,10 +1,11 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
   Injectable,
   Logger,
-  OnModuleInit,
 } from '@nestjs/common';
 import * as anchor from '@coral-xyz/anchor';
 import {
@@ -24,7 +25,6 @@ import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import bs58 from 'bs58';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
@@ -42,13 +42,12 @@ export class PaymentService {
   private readonly anchorProviderWallet: Wallet;
   private readonly master: Keypair;
   private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
-  private readonly USDC_TOKEN_ADDRESS = new PublicKey(
-    '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-  );
+  private readonly TOKEN_ADDRESS = new PublicKey(process.env.TOKEN_ADDRESS);
+
   // Prices in raw format
-  private readonly USDC_PRICE_PER_MINUTE =
+  private readonly RAW_PRICE_PER_MINUTE =
     SubscriptionPrice.PER_USAGE * 1_000_000;
-  private readonly USDC_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
+  private readonly RAW_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
 
   // Default free hours for new users in seconds
   private readonly USER_DEFAULT_FREE_HOURS: number = 3 * 60 * 60; // hours * seconds * milliseconds
@@ -64,9 +63,9 @@ export class PaymentService {
   ) {
     // Setup config
     this.master = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(process.env.MASTER_KEY ?? '')),
+      new Uint8Array(JSON.parse(process.env.MASTER_KEY)),
     );
-    this.connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+    this.connection = new Connection(process.env.RPC_URL, 'confirmed');
     this.anchorProviderWallet = new Wallet(this.master);
     this.anchorProvider = new AnchorProvider(
       this.connection,
@@ -102,16 +101,14 @@ export class PaymentService {
       }
 
       // ATA address where user's balance is stored
-      const userTimedVaultAddress = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+      const userVaultAddress = await getAssociatedTokenAddress(
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
 
-      const userVaultBalance = await this.getUserVaultBalance(
-        userTimedVaultAddress,
-      );
+      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
 
       // Check if user has sufficient balance to refund
       if (userVaultBalance < amount) {
@@ -133,15 +130,10 @@ export class PaymentService {
     } catch (error) {
       this.logger.error(`Error refunding user's balance: [${error}]`);
 
-      // TODO: rewrite normally
       // Throw exception to client
-      throw new HttpException(
-        {
-          message: this.i18n.t('payment.messages.timedBalanceRefundFailed'),
-          error: error.message,
-          statusCode: HttpStatus.FORBIDDEN,
-        },
-        HttpStatus.FORBIDDEN,
+      throw new BadRequestException(
+        this.i18n.t('payment.messages.BalanceRefundFailed'),
+        error.message,
       );
     }
   }
@@ -163,21 +155,20 @@ export class PaymentService {
           await this.startPayingPerHours(client);
           break;
         default:
-          this.logger.error(`Invalid subscription type: [${subscriptionType}]`);
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
           );
       }
     } catch (error) {
       this.logger.error(
-        `Error starting payment with required method: [${error}]`,
+        `Error starting payment with required method: [${error.message}]`,
       );
       // Emit error to client and disconnect him
       const message = this.i18nWs(
         client,
         'payment.messages.startTranslationFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
     }
   }
@@ -212,7 +203,7 @@ export class PaymentService {
         client,
         'payment.messages.stopTranslationFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
     }
   }
@@ -231,7 +222,7 @@ export class PaymentService {
 
       // ATA address where user balance is stored
       const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
@@ -240,7 +231,7 @@ export class PaymentService {
       const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
 
       // Check if user has sufficient balance
-      if (userVaultBalance < this.USDC_PRICE_PER_MINUTE) {
+      if (userVaultBalance < this.RAW_PRICE_PER_MINUTE) {
         this.logger.error(
           `User [${userPublicKey.toString()}] has insufficient balance`,
         );
@@ -266,7 +257,7 @@ export class PaymentService {
 
       // Calculate the total minutes the user can use with his balance
       const minutesLimit = Math.floor(
-        userVaultBalance / this.USDC_PRICE_PER_MINUTE,
+        userVaultBalance / this.RAW_PRICE_PER_MINUTE,
       );
 
       // Determine the expiration time of the user's balance
@@ -305,7 +296,7 @@ export class PaymentService {
         client,
         'payment.messages.startPayPerUsageFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -360,7 +351,7 @@ export class PaymentService {
           ? Math.ceil(timeDifferenceInMinutes)
           : Math.floor(timeDifferenceInMinutes);
 
-      const totalPrice = totalUsedMinutes * this.USDC_PRICE_PER_MINUTE;
+      const totalPrice = totalUsedMinutes * this.RAW_PRICE_PER_MINUTE;
       this.logger.debug(
         `User's [${userPublicKey.toString()}] total price: [${totalPrice}]`,
       );
@@ -387,7 +378,7 @@ export class PaymentService {
         client,
         'payment.messages.stopPayPerUsageFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
     }
   }
@@ -479,7 +470,7 @@ export class PaymentService {
         client,
         'payment.messages.startFreeHoursFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
 
       // Remove user's cache if error occurs and it's set
@@ -551,7 +542,7 @@ export class PaymentService {
         client,
         'payment.messages.stopFreeHoursFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
     }
   }
@@ -568,15 +559,13 @@ export class PaymentService {
       );
 
       // ATA address where user's balance is stored
-      const userTimedVaultAddress = await getAssociatedTokenAddress(
-        this.USDC_TOKEN_ADDRESS,
+      const userVaultAddress = await getAssociatedTokenAddress(
+        this.TOKEN_ADDRESS,
         userInfoAddress,
         true,
         this.TOKEN_PROGRAM,
       );
-      const userTimedVaultBalance = await this.getUserVaultBalance(
-        userTimedVaultAddress,
-      );
+      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
 
       // Get left hours in seconds
       const userInfo =
@@ -592,10 +581,7 @@ export class PaymentService {
 
       // Check if user have not used free hours from last using
       // or sufficient balance to buy an hour
-      if (
-        !hasRemainingHours &&
-        userTimedVaultBalance < this.USDC_PRICE_PER_HOUR
-      ) {
+      if (!hasRemainingHours && userVaultBalance < this.RAW_PRICE_PER_HOUR) {
         this.logger.error(
           `User [${userPublicKey.toString()}] has insufficient balance`,
         );
@@ -619,7 +605,7 @@ export class PaymentService {
 
       // Determine the expiration time of the user's balance
       const availableTimeFromBalance: number = Math.floor(
-        userTimedVaultBalance / this.USDC_PRICE_PER_HOUR,
+        userVaultBalance / this.RAW_PRICE_PER_HOUR,
       );
 
       const availableTimeInMilliseconds: number =
@@ -654,7 +640,7 @@ export class PaymentService {
         userPublicKey,
         usageStartTime,
         usageTimeLimit,
-        userTimedVaultBalance,
+        userVaultBalance,
         true, // For per hours payment
       );
       this.logger.debug(
@@ -672,7 +658,7 @@ export class PaymentService {
         client,
         'payment.messages.startPayPerHoursFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -741,19 +727,19 @@ export class PaymentService {
         const newPerHoursLeftInSeconds = Math.round(newPerHoursLeft * 60 * 60); // 60 minutes * 60 seconds
 
         // Calculate the total price for the used hours
-        const totalPriceInRawUSDC = totalHoursToPay * this.USDC_PRICE_PER_HOUR;
+        const rawTotalPrice = totalHoursToPay * this.RAW_PRICE_PER_HOUR;
 
         // Pay for the used hours
         await this.payPerHourThroughProgram(
           userPublicKey,
-          totalPriceInRawUSDC,
+          rawTotalPrice,
           newPerHoursLeftInSeconds,
         );
         this.logger.debug(
           `User's [${userPublicKey.toString()}] per hours left: ${newPerHoursLeftInSeconds} seconds`,
         );
         this.logger.debug(
-          `User [${userPublicKey.toString()}] paid [${totalPriceInRawUSDC}] USDC for [${totalHoursToPay}] used hours`,
+          `User [${userPublicKey.toString()}] paid [${rawTotalPrice}] tokens for [${totalHoursToPay}] used hours`,
         );
       } else {
         // Set per hours left after the usage
@@ -780,7 +766,7 @@ export class PaymentService {
         client,
         'payment.messages.stopPayPerHoursFailed',
       );
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
 
       // Release resources if error occurs
@@ -801,14 +787,14 @@ export class PaymentService {
 
   private async payPerMinuteThroughProgram(
     userPublicKey: PublicKey,
-    priceInRawUSDC: number,
+    rawPrice: number,
   ): Promise<void> {
     try {
       const transaction = await this.program.methods
-        .payPerMinuteAndUnfreezeBalance(new anchor.BN(priceInRawUSDC))
+        .payPerMinuteAndUnfreezeBalance(new anchor.BN(rawPrice))
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -821,18 +807,18 @@ export class PaymentService {
 
   private async payPerHourThroughProgram(
     userPublicKey: PublicKey,
-    priceInRawUSDC: number,
+    rawTotalPrice: number,
     perHoursLeft: number,
   ): Promise<void> {
     try {
       const transaction = await this.program.methods
         .payPerHourAndUnfreezeBalance(
-          new anchor.BN(priceInRawUSDC),
+          new anchor.BN(rawTotalPrice),
           new anchor.BN(perHoursLeft),
         )
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -845,14 +831,14 @@ export class PaymentService {
 
   private async refundBalanceThroughProgram(
     userPublicKey: PublicKey,
-    amountInRawUSDC: number,
+    rawTotalPrice: number,
   ): Promise<string> {
     try {
       const transaction = await this.program.methods
-        .refund(amountInRawUSDC)
+        .refund(rawTotalPrice)
         .accounts({
           user: userPublicKey,
-          token: this.USDC_TOKEN_ADDRESS,
+          token: this.TOKEN_ADDRESS,
           tokenProgram: this.TOKEN_PROGRAM,
         })
         .signers([this.master])
@@ -912,11 +898,10 @@ export class PaymentService {
     }
   }
   private async getUserVaultBalance(
-    userTimedVaultAddress: PublicKey,
+    userVaultAddress: PublicKey,
   ): Promise<number> {
-    const balanceInfo = await this.connection.getTokenAccountBalance(
-      userTimedVaultAddress,
-    );
+    const balanceInfo =
+      await this.connection.getTokenAccountBalance(userVaultAddress);
     const balance = parseInt(balanceInfo.value.amount);
     return balance;
   }
@@ -952,7 +937,7 @@ export class PaymentService {
     userPublicKey: PublicKey,
     usageStartTime: Date,
     usageTimeLimit: Date,
-    priceInRawUSDC: number,
+    rawTotalPrice: number,
     hasRemainingHours: boolean = false, // Only for per hours payment
   ): Promise<void> {
     const millisecondsToExecute =
@@ -967,14 +952,14 @@ export class PaymentService {
       if (hasRemainingHours) {
         await this.payPerHourThroughProgram(
           userPublicKey,
-          priceInRawUSDC,
+          rawTotalPrice,
           0, // Reset hours left
         );
       } else {
-        await this.payPerMinuteThroughProgram(userPublicKey, priceInRawUSDC);
+        await this.payPerMinuteThroughProgram(userPublicKey, rawTotalPrice);
       }
       this.logger.debug(
-        `User [${userPublicKey.toString()}] paid for the used time: [${priceInRawUSDC}] USDC`,
+        `User [${userPublicKey.toString()}] paid for the used time: [${rawTotalPrice}] tokens`,
       );
 
       // Clear user's resources
@@ -987,7 +972,7 @@ export class PaymentService {
         `payment.messages.stopPayPer${hasRemainingHours ? 'Hours' : 'Usage'}Failed`,
       );
       const error = this.i18nWs(client, 'payment.errors.fundsRanOut');
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
 
       this.logger.debug(
@@ -1024,7 +1009,7 @@ export class PaymentService {
         'payment.messages.errorDuringFreeHours',
       );
       const error = this.i18nWs(client, 'payment.errors.freeHoursExpired');
-      this.emitErrorToWsClient(client, message, error);
+      this.emitErrorToClient(client, message, error);
       client.disconnect();
     };
 
@@ -1085,7 +1070,7 @@ export class PaymentService {
   }
 
   // TODO: rewrite
-  private emitErrorToWsClient(
+  private emitErrorToClient(
     client: Socket,
     message: string,
     error: any,

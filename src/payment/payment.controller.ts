@@ -25,8 +25,7 @@ export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @ApiOperation({
-    summary:
-      'Refunds user timed balance. Body is empty, gets publicKey from JWT',
+    summary: 'Refunds user balance. Body is empty, gets publicKey from JWT',
   })
   @ApiResponse({
     status: 201,
