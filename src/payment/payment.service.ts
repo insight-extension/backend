@@ -49,8 +49,13 @@ export class PaymentService {
     SubscriptionPrice.PER_USAGE * 1_000_000;
   private readonly RAW_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
 
-  // Default free hours for new users in seconds
+  // Free hours configuration values
   private readonly USER_DEFAULT_FREE_HOURS: number = 3 * 60 * 60; // hours * seconds * milliseconds
+  private readonly TIME_TO_RENEW_FREE_HOURS_IN_MS: number =
+    7 * 24 * 60 * 60 * 1000;
+
+  // Per minute payment configuration values
+  private readonly SECONDS_FROM_ROUND_TO_MINUTE = 40;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -301,17 +306,8 @@ export class PaymentService {
 
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      try {
-        await this.clearUserResources(userPublicKey);
-        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        this.logger.debug(
-          `User's [${userPublicKey.toString()}] resources cleared`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
-        );
-      }
+      await this.clearUserResources(userPublicKey.toString());
+      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
     }
   }
 
@@ -332,20 +328,19 @@ export class PaymentService {
         this.logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
+        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
         return;
       }
       // Calculate the usage time in milliseconds
       const timeDifference = usageEndTime.getTime() - usageStartTime.getTime();
 
-      // TODO: check for seconds implementation
       // Convert the time difference to minutes
       const timeDifferenceInMinutes = timeDifference / (60 * 1000); // 60 sec * 1000 ms
 
       // Convert seconds into minutes for comparison
-      const SECONDS_TO_ROUND = 40;
-      const secondsInMinutes = SECONDS_TO_ROUND / 60;
+      const secondsInMinutes = this.SECONDS_FROM_ROUND_TO_MINUTE / 60;
 
-      // Round up the total used minutes if seconds >= 40
+      // Round up the total used minutes if seconds >= SECONDS_FROM_ROUND_TO_MINUTE
       const totalUsedMinutes =
         timeDifferenceInMinutes % 1 >= secondsInMinutes
           ? Math.ceil(timeDifferenceInMinutes)
@@ -357,20 +352,10 @@ export class PaymentService {
       );
 
       // Reset user's state to initial state as before translation started
-      await this.clearUserResources(userPublicKey);
-      this.logger.debug(`User's [${userPublicKey.toString()}] state reset`);
+      await this.clearUserResources(userPublicKey.toString());
 
       // Withdraw money from user using program
-      if (totalPrice !== 0) {
-        await this.payPerMinuteThroughProgram(userPublicKey, totalPrice);
-        return;
-      }
-
-      // Unfreeze user's balance if no money was withdrawn
-      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-      this.logger.debug(
-        `User's [${userPublicKey.toString()}] balance is unfrozen`,
-      );
+      await this.payPerMinuteThroughProgram(userPublicKey, totalPrice);
     } catch (error) {
       this.logger.error(`Error stopping pay per time: [${error}]`);
       // Disconnect client if error occurs
@@ -380,6 +365,14 @@ export class PaymentService {
       );
       this.emitErrorToClient(client, message, error);
       client.disconnect();
+
+      // Release resources if error occurs
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey.toString());
+      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] resources cleared`,
+      );
     }
   }
 
@@ -415,11 +408,8 @@ export class PaymentService {
       const differenceInMilliseconds =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
-      // TODO: maybe move to class constants
-      const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
-
       const isRenewAvailable =
-        differenceInMilliseconds >= ONE_WEEK_IN_MILLISECONDS;
+        differenceInMilliseconds >= this.TIME_TO_RENEW_FREE_HOURS_IN_MS;
 
       // Renew free hour if available
       if (isRenewAvailable) {
@@ -474,13 +464,8 @@ export class PaymentService {
       client.disconnect();
 
       // Remove user's cache if error occurs and it's set
-      try {
-        const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-        this.cacheManager.del(userPublicKey.toString());
-        this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-      } catch (error) {
-        this.logger.error(`Error deleting cache and timeout: [${error}]`);
-      }
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey.toString());
     }
   }
 
@@ -522,18 +507,7 @@ export class PaymentService {
       this.logger.debug(
         `User's [${userPublicKey.toString()}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSeconds}]`,
       );
-
-      // TODO: check for release function
-      this.cacheManager.del(userPublicKey.toString());
-      this.logger.debug(
-        `Cache deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
-      );
-
-      // TODO: all deletes should be strictly checked
-      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-      this.logger.debug(
-        `Timeout deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
-      );
+      await this.clearUserResources(userPublicKey.toString());
     } catch (error) {
       this.logger.error(`Error stopping free hours usage: [${error}]`);
 
@@ -604,11 +578,11 @@ export class PaymentService {
       this.logger.debug(`Cache set for user [${userPublicKey.toString()}]`);
 
       // Determine the expiration time of the user's balance
-      const availableTimeFromBalance: number = Math.floor(
+      const availableTimeFromBalance = Math.floor(
         userVaultBalance / this.RAW_PRICE_PER_HOUR,
       );
 
-      const availableTimeInMilliseconds: number =
+      const availableTimeInMilliseconds =
         availableTimeFromBalance * 60 * 60 * 1000; // minutes * seconds * milliseconds
 
       let usageTimeLimit = new Date(Date.now() + availableTimeInMilliseconds);
@@ -624,7 +598,6 @@ export class PaymentService {
       }
 
       // Check if user has an existing timeout and delete it
-      // TODO: add logging for timeout deletion
       if (
         this.schedulerRegistry.doesExist('timeout', userPublicKey.toString())
       ) {
@@ -662,18 +635,12 @@ export class PaymentService {
       client.disconnect();
 
       // Release resources if error occurs
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      try {
-        await this.clearUserResources(userPublicKey);
-        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        this.logger.debug(
-          `User's [${userPublicKey.toString()}] resources cleared`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
-        );
-      }
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey.toString());
+      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] resources cleared`,
+      );
     }
   }
 
@@ -689,6 +656,8 @@ export class PaymentService {
         this.logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
+        // Unfreeze user's balance if it's frozen
+        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
         return;
       }
       const usageEndTime = new Date();
@@ -754,10 +723,7 @@ export class PaymentService {
         );
       }
       // Reset user's state to initial state as before translation started
-      await this.clearUserResources(userPublicKey);
-      this.logger.debug(
-        `User's [${userPublicKey.toString()}] resources cleared`,
-      );
+      await this.clearUserResources(userPublicKey.toString());
     } catch (error) {
       this.logger.error(`Error stopping pay per hour: [${error}]`);
 
@@ -770,18 +736,12 @@ export class PaymentService {
       client.disconnect();
 
       // Release resources if error occurs
-      const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
-      try {
-        await this.clearUserResources(userPublicKey);
-        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
-        this.logger.debug(
-          `User's [${userPublicKey.toString()}] resources cleared`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to release resources: [${error}] for [${userPublicKey.toString()}]`,
-        );
-      }
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      await this.clearUserResources(userPublicKey.toString());
+      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      this.logger.debug(
+        `User's [${userPublicKey.toString()}] resources cleared`,
+      );
     }
   }
 
@@ -892,11 +852,9 @@ export class PaymentService {
       this.logger.error(
         `Error unfreezing user's [${userPublicKey.toString()}] balance: [${error}]`,
       );
-      throw new Error(
-        this.i18nWs(client, 'payment.errors.balanceUnfreezingFailed'),
-      );
     }
   }
+
   private async getUserVaultBalance(
     userVaultAddress: PublicKey,
   ): Promise<number> {
@@ -928,6 +886,7 @@ export class PaymentService {
     const bearerToken = authHeader.split(' ')[1];
 
     // Encode payload from token
+    // TODO: add type for payload
     const payload = this.jwtService.decode(bearerToken);
     return new PublicKey(payload.publicKey);
   }
@@ -996,8 +955,8 @@ export class PaymentService {
     const timeoutCallback = async () => {
       // Reset user's free hours to 0
       await this.accountService.setFreeHours(0, userPublicKey.toString());
-
       this.cacheManager.del(userPublicKey.toString());
+
       this.logger.debug(`User's [${userPublicKey.toString()}] cache deleted`);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] free hours expired. Timeout executed`,
@@ -1017,7 +976,6 @@ export class PaymentService {
     const millisecondsToExecute = userFreeHoursLeft * 60 * 1000; // 60 seconds * 1000 milliseconds
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     const taskName = userPublicKey.toString();
-
     this.schedulerRegistry.addTimeout(taskName, timeout);
     this.logger.debug(
       `Timeout added to scheduler for user: [${userPublicKey.toString()}] executes in [${millisecondsToExecute}ms]`,
@@ -1025,19 +983,20 @@ export class PaymentService {
   }
 
   // Reset user's state to initial state as before translation started
-  private async clearUserResources(userPublicKey: PublicKey): Promise<void> {
-    // Remove user's cache
-    try {
-      this.cacheManager.del(userPublicKey.toString());
-    } catch (error) {
-      this.logger.warn(`Error deleting cache: [${error}]`);
+  private async clearUserResources(userPublicKey: string): Promise<void> {
+    // Clear cache if exists
+    if (await this.cacheManager.get(userPublicKey)) {
+      await this.cacheManager.del(userPublicKey);
+      this.logger.debug(`Cache deleted for user [${userPublicKey}]`);
+    } else {
+      this.logger.warn('No cache found for user');
     }
-
-    // Remove user's timeout
-    try {
-      this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-    } catch (error) {
-      this.logger.warn(`Error deleting timeout: [${error}]`);
+    // Clear timeout if exists
+    if (this.schedulerRegistry.doesExist('timeout', userPublicKey)) {
+      this.schedulerRegistry.deleteTimeout(userPublicKey);
+      this.logger.debug(`Existing timeout [${userPublicKey}] removed`);
+    } else {
+      this.logger.warn('No timeout found for user');
     }
   }
 
@@ -1059,7 +1018,7 @@ export class PaymentService {
   }
 
   private getUserInfoAddress(
-    infoAccountType: string,
+    infoAccountType: AccountType,
     userPublicKey: PublicKey,
   ): PublicKey {
     const [userInfoAddress] = PublicKey.findProgramAddressSync(
