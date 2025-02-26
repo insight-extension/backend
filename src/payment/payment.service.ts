@@ -133,6 +133,7 @@ export class PaymentService {
     } catch (error) {
       this.logger.error(`Error refunding user's balance: [${error}]`);
 
+      // TODO: rewrite normally
       // Throw exception to client
       throw new HttpException(
         {
@@ -198,14 +199,13 @@ export class PaymentService {
           await this.stopPayingPerHours(client);
           break;
         default:
-          this.logger.error(`Invalid subscription type: [${subscriptionType}]`);
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
           );
       }
     } catch (error) {
       this.logger.error(
-        `Error stopping payment with required method: [${error}]`,
+        `Error stopping payment with required method: [${error.message}]`,
       );
       // Emit error to client and disconnect him
       const message = this.i18nWs(
@@ -331,7 +331,7 @@ export class PaymentService {
 
       // Get the usage start time from cache
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const usageStartTime: Date | null = await this.cacheManager.get(
+      const usageStartTime: Date = await this.cacheManager.get(
         userPublicKey.toString(),
       );
 
@@ -343,10 +343,10 @@ export class PaymentService {
         );
         return;
       }
-
       // Calculate the usage time in milliseconds
       const timeDifference = usageEndTime.getTime() - usageStartTime.getTime();
 
+      // TODO: check for seconds implementation
       // Convert the time difference to minutes
       const timeDifferenceInMinutes = timeDifference / (60 * 1000); // 60 sec * 1000 ms
 
@@ -400,10 +400,9 @@ export class PaymentService {
       );
 
       // Get user's free hours start date
-      let freeHoursStartDate: Date | null =
-        await this.accountService.getFreeHoursStartDate(
-          userPublicKey.toString(),
-        );
+      let freeHoursStartDate = await this.accountService.getFreeHoursStartDate(
+        userPublicKey.toString(),
+      );
       const currentUsageStartTime = new Date();
 
       // Set free hours start date if it's not set (for new users)
@@ -425,6 +424,7 @@ export class PaymentService {
       const differenceInMilliseconds =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
+      // TODO: maybe move to class constants
       const ONE_WEEK_IN_MILLISECONDS = 7 * 24 * 60 * 60 * 1000;
 
       const isRenewAvailable =
@@ -521,7 +521,6 @@ export class PaymentService {
 
       // Convert time difference to seconds
       const totalUsedTime = Math.round(timeDifferenceInMilliseconds / 1000); // 1000 ms
-
       const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
@@ -539,6 +538,7 @@ export class PaymentService {
         `Cache deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
       );
 
+      // TODO: all deletes should be strictly checked
       this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
       this.logger.debug(
         `Timeout deleted for user [${userPublicKey.toString()}] after stopping free hours usage`,
@@ -638,12 +638,13 @@ export class PaymentService {
       }
 
       // Check if user has an existing timeout and delete it
+      // TODO: add logging for timeout deletion
       if (
         this.schedulerRegistry.doesExist('timeout', userPublicKey.toString())
       ) {
         this.schedulerRegistry.deleteTimeout(userPublicKey.toString());
-        this.logger.debug(
-          `Existing timeout [${userPublicKey.toString()}] removed`,
+        this.logger.warn(
+          `Timeout already exists and was removed while starting pay per hours`,
         );
       }
 
@@ -704,7 +705,6 @@ export class PaymentService {
         );
         return;
       }
-
       const usageEndTime = new Date();
 
       // Calculate the total used time in milliseconds
@@ -767,7 +767,6 @@ export class PaymentService {
           `User's [${userPublicKey.toString()}] per hours left: [${totalUsageInHours}]`,
         );
       }
-
       // Reset user's state to initial state as before translation started
       await this.clearUserResources(userPublicKey);
       this.logger.debug(
@@ -1085,6 +1084,7 @@ export class PaymentService {
     return userInfoAddress;
   }
 
+  // TODO: rewrite
   private emitErrorToWsClient(
     client: Socket,
     message: string,
