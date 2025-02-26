@@ -13,7 +13,7 @@ import { PublicKey } from '@solana/web3.js';
 
 @ValidatorConstraint({ async: false })
 export class IsSolPubkeyConstraint implements ValidatorConstraintInterface {
-  validate(address: string, args: ValidationArguments): boolean {
+  validate(address: unknown, args: ValidationArguments): boolean {
     try {
       const pubkey = new PublicKey(address);
       return PublicKey.isOnCurve(pubkey.toBuffer());
@@ -22,6 +22,7 @@ export class IsSolPubkeyConstraint implements ValidatorConstraintInterface {
     }
   }
 
+  // TODO: replace with i18n
   defaultMessage(args: ValidationArguments): string {
     return `${args.property} must be a valid Solana address on the curve`;
   }

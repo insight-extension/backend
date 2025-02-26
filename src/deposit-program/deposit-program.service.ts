@@ -1,3 +1,5 @@
+import * as anchor from '@coral-xyz/anchor';
+import * as idl from './interfaces/deposit_program.json';
 import {
   AnchorProvider,
   Program,
@@ -9,9 +11,8 @@ import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { DepositProgram } from './interfaces/deposit_program';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import 'dotenv/config';
-import * as anchor from '@coral-xyz/anchor';
-import * as idl from './interfaces/deposit_program.json';
 import { AccountType } from 'src/payment/constants/account-type.enum';
+import { UnfreezeBalanceResponseDto } from './dto/unfreeze-balance-response.dto';
 
 @Injectable()
 export class DepositProgramService {
@@ -42,10 +43,11 @@ export class DepositProgramService {
 
   getUserInfoAddress(
     infoAccountType: AccountType,
-    userPublicKey: PublicKey,
+    userPublicKey: string,
   ): PublicKey {
+    const publicKey = new PublicKey(userPublicKey);
     const [userInfoAddress] = PublicKey.findProgramAddressSync(
-      [Buffer.from(infoAccountType), userPublicKey.toBuffer()],
+      [Buffer.from(infoAccountType), publicKey.toBuffer()],
       this.program.programId,
     );
     return userInfoAddress;
@@ -71,14 +73,12 @@ export class DepositProgramService {
     );
   }
 
-  async payPerMinute(
-    userPublicKey: PublicKey,
-    rawPrice: number,
-  ): Promise<void> {
+  async payPerMinute(userPublicKey: string, rawPrice: number): Promise<void> {
+    const publicKey = new PublicKey(userPublicKey);
     const transaction = await this.program.methods
       .payPerMinuteAndUnfreezeBalance(new anchor.BN(rawPrice))
       .accounts({
-        user: userPublicKey,
+        user: publicKey,
         token: this.TOKEN_ADDRESS,
         tokenProgram: this.TOKEN_PROGRAM,
       })
@@ -88,17 +88,18 @@ export class DepositProgramService {
   }
 
   async payPerHour(
-    userPublicKey: PublicKey,
+    userPublicKey: string,
     rawTotalPrice: number,
     perHoursLeft: number,
   ): Promise<void> {
+    const publicKey = new PublicKey(userPublicKey);
     const transaction = await this.program.methods
       .payPerHourAndUnfreezeBalance(
         new anchor.BN(rawTotalPrice),
         new anchor.BN(perHoursLeft),
       )
       .accounts({
-        user: userPublicKey,
+        user: publicKey,
         token: this.TOKEN_ADDRESS,
         tokenProgram: this.TOKEN_PROGRAM,
       })
@@ -108,45 +109,50 @@ export class DepositProgramService {
   }
 
   async refundBalance(
-    userPublicKey: PublicKey,
+    userPublicKey: string,
     rawTotalPrice: number,
   ): Promise<string> {
+    const publicKey = new PublicKey(userPublicKey);
     const transaction = await this.program.methods
       .refund(rawTotalPrice)
       .accounts({
-        user: userPublicKey,
+        user: publicKey,
         token: this.TOKEN_ADDRESS,
         tokenProgram: this.TOKEN_PROGRAM,
       })
       .signers([this.master])
       .rpc();
     this.logger.debug(
-      `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
+      `Refund done for user [${userPublicKey}], transaction: [${transaction}]`,
     );
     return transaction;
   }
 
-  async freezeBalance(userPublicKey: PublicKey): Promise<string> {
+  async freezeBalance(userPublicKey: string): Promise<string> {
+    const publicKey = new PublicKey(userPublicKey);
     const transaction = await this.program.methods
       .freezeBalance()
       .accounts({
-        user: userPublicKey,
+        user: publicKey,
       })
       .signers([this.master])
       .rpc();
     return transaction;
   }
 
-  async unfreezeBalance(userPublicKey: PublicKey): Promise<string> {
+  async unfreezeBalance(
+    userPublicKey: string,
+  ): Promise<UnfreezeBalanceResponseDto> {
+    const publicKey = new PublicKey(userPublicKey);
     try {
       const transaction = await this.program.methods
         .unfreezeBalance()
         .accounts({
-          user: userPublicKey,
+          user: publicKey,
         })
         .signers([this.master])
         .rpc();
-      return transaction;
+      return { transaction };
     } catch (error) {
       this.logger.error(`Error unfreezing balance: [${error}]`);
     }

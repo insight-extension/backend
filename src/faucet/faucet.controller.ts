@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   HttpCode,
   HttpStatus,
@@ -15,7 +16,9 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
+import { ConfigureFaucetDto } from './dto/configure-faucet.dto';
 
 @ApiTags('faucet')
 @Controller('faucet')
@@ -24,7 +27,7 @@ export class FaucetController {
 
   @ApiOperation({
     summary:
-      'Allow user to claim tokens. Body is empty, gets publicKey from JWT and IP from request',
+      'Allow user to claim USDC. Body is empty, gets publicKey from JWT and IP from request',
   })
   @ApiResponse({
     status: 201,
@@ -40,5 +43,23 @@ export class FaucetController {
     @Ip() ip: string,
   ): Promise<ClaimFaucetResponseDto> {
     return await this.faucetService.claim(publicKey, ip);
+  }
+
+  @ApiOperation({
+    summary:
+      'Allow to configure the amount of USDC to claim per 24h. Requires API auth token',
+  })
+  @ApiResponse({
+    status: 201,
+    description: `Returns transaction's signature`,
+    type: ConfigureFaucetResponseDto,
+  })
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.CREATED)
+  @Post('configure')
+  async configureFaucet(
+    @Body() dto: ConfigureFaucetDto,
+  ): Promise<ConfigureFaucetResponseDto> {
+    return await this.faucetService.configureFaucet(dto.amount);
   }
 }
