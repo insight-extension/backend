@@ -1,48 +1,30 @@
 import {
   BadRequestException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
   Injectable,
   Logger,
 } from '@nestjs/common';
-import * as anchor from '@coral-xyz/anchor';
-import {
-  AnchorProvider,
-  Program,
-  setProvider,
-  Wallet,
-} from '@coral-xyz/anchor';
-import { clusterApiUrl, Connection, Keypair, PublicKey } from '@solana/web3.js';
+
+import { PublicKey } from '@solana/web3.js';
 import 'dotenv/config';
-import * as idl from './interfaces/deposit_program.json';
-import { TOKEN_PROGRAM_ID } from '@coral-xyz/anchor/dist/cjs/utils/token';
 import { Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
-import 'dotenv/config';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
 import { AccountType } from './constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
-import { DepositProgram } from './interfaces/deposit_program';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
+import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
-  private readonly anchorProvider: AnchorProvider;
-  private readonly connection: Connection;
-  private readonly program: Program<DepositProgram>;
-  private readonly anchorProviderWallet: Wallet;
-  private readonly master: Keypair;
-  private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
-  private readonly TOKEN_ADDRESS = new PublicKey(process.env.TOKEN_ADDRESS);
 
   // Prices in raw format
   private readonly RAW_PRICE_PER_MINUTE =
@@ -58,6 +40,7 @@ export class PaymentService {
   private readonly SECONDS_FROM_ROUND_TO_MINUTE = 40;
 
   constructor(
+    private readonly programService: DepositProgramService,
     private readonly jwtService: JwtService,
     private readonly accountService: AccountService,
     private readonly i18n: I18nService,
@@ -65,21 +48,7 @@ export class PaymentService {
     private readonly schedulerRegistry: SchedulerRegistry,
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
-  ) {
-    // Setup config
-    this.master = Keypair.fromSecretKey(
-      new Uint8Array(JSON.parse(process.env.MASTER_KEY)),
-    );
-    this.connection = new Connection(process.env.RPC_URL, 'confirmed');
-    this.anchorProviderWallet = new Wallet(this.master);
-    this.anchorProvider = new AnchorProvider(
-      this.connection,
-      this.anchorProviderWallet,
-      AnchorProvider.defaultOptions(),
-    );
-    setProvider(this.anchorProvider);
-    this.program = new Program(idl as DepositProgram, this.anchorProvider);
-  }
+  ) {}
 
   async refundUserBalance(
     publicKey: string,
@@ -88,13 +57,12 @@ export class PaymentService {
     try {
       // User's PDA address
       const userPublicKey = new PublicKey(publicKey);
-      const userInfoAddress = this.getUserInfoAddress(
+      const userInfoAddress = this.programService.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
       );
 
-      const userInfo =
-        await this.program.account.userInfo.fetch(userInfoAddress);
+      const userInfo = await this.programService.getUserInfo(userPublicKey);
 
       // Check if balance is frozen
       const isBalanceFrozen = userInfo.isBalanceFrozen;
@@ -106,14 +74,11 @@ export class PaymentService {
       }
 
       // ATA address where user's balance is stored
-      const userVaultAddress = await getAssociatedTokenAddress(
-        this.TOKEN_ADDRESS,
-        userInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
+      const userVaultAddress =
+        await this.programService.getUserVaultAddress(userInfoAddress);
 
-      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
+      const userVaultBalance =
+        await this.programService.getUserVaultBalance(userVaultAddress);
 
       // Check if user has sufficient balance to refund
       if (userVaultBalance < amount) {
@@ -124,7 +89,7 @@ export class PaymentService {
       }
 
       // Refund user's balance
-      const transaction = await this.refundBalanceThroughProgram(
+      const transaction = await this.programService.refundBalance(
         userPublicKey,
         amount,
       );
@@ -220,20 +185,17 @@ export class PaymentService {
         `User [${userPublicKey.toString()}] started paying per usage`,
       );
 
-      const userInfoAddress = this.getUserInfoAddress(
+      const userInfoAddress = this.programService.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
       );
 
       // ATA address where user balance is stored
-      const userVaultAddress: PublicKey = await getAssociatedTokenAddress(
-        this.TOKEN_ADDRESS,
-        userInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
+      const userVaultAddress: PublicKey =
+        await this.programService.getUserVaultAddress(userInfoAddress);
 
-      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
+      const userVaultBalance =
+        await this.programService.getUserVaultBalance(userVaultAddress);
 
       // Check if user has sufficient balance
       if (userVaultBalance < this.RAW_PRICE_PER_MINUTE) {
@@ -246,7 +208,7 @@ export class PaymentService {
       }
 
       // Freeze user balance
-      await this.freezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.freezeBalance(userPublicKey);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] balance is frozen`,
       );
@@ -307,7 +269,7 @@ export class PaymentService {
       // Release resources if error occurs
       const userPublicKey: PublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey.toString());
-      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.unfreezeBalance(userPublicKey);
     }
   }
 
@@ -328,7 +290,7 @@ export class PaymentService {
         this.logger.warn(
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
-        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+        await this.programService.unfreezeBalance(userPublicKey);
         return;
       }
       // Calculate the usage time in milliseconds
@@ -355,7 +317,7 @@ export class PaymentService {
       await this.clearUserResources(userPublicKey.toString());
 
       // Withdraw money from user using program
-      await this.payPerMinuteThroughProgram(userPublicKey, totalPrice);
+      await this.programService.payPerMinute(userPublicKey, totalPrice);
     } catch (error) {
       this.logger.error(`Error stopping pay per time: [${error}]`);
       // Disconnect client if error occurs
@@ -369,7 +331,7 @@ export class PaymentService {
       // Release resources if error occurs
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey.toString());
-      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.unfreezeBalance(userPublicKey);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] resources cleared`,
       );
@@ -527,23 +489,19 @@ export class PaymentService {
       this.logger.debug(
         `Starting pay per hours for [${userPublicKey.toString()}]`,
       );
-      const userInfoAddress = this.getUserInfoAddress(
+      const userInfoAddress = this.programService.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
       );
 
       // ATA address where user's balance is stored
-      const userVaultAddress = await getAssociatedTokenAddress(
-        this.TOKEN_ADDRESS,
-        userInfoAddress,
-        true,
-        this.TOKEN_PROGRAM,
-      );
-      const userVaultBalance = await this.getUserVaultBalance(userVaultAddress);
+      const userVaultAddress =
+        await this.programService.getUserVaultAddress(userInfoAddress);
+      const userVaultBalance =
+        await this.programService.getUserVaultBalance(userVaultAddress);
 
       // Get left hours in seconds
-      const userInfo =
-        await this.program.account.userInfo.fetch(userInfoAddress);
+      const userInfo = await this.programService.getUserInfo(userInfoAddress);
 
       if (!userInfo) {
         this.logger.error(`User [${userPublicKey.toString()}] info not found`);
@@ -565,7 +523,7 @@ export class PaymentService {
       }
 
       // Freeze user's balance
-      await this.freezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.freezeBalance(userPublicKey);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] balance is frozen`,
       );
@@ -637,7 +595,7 @@ export class PaymentService {
       // Release resources if error occurs
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey.toString());
-      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.unfreezeBalance(userPublicKey);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] resources cleared`,
       );
@@ -657,7 +615,7 @@ export class PaymentService {
           `User [${userPublicKey.toString()}] has no usage start time. Ignoring stop request`,
         );
         // Unfreeze user's balance if it's frozen
-        await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+        await this.programService.unfreezeBalance(userPublicKey);
         return;
       }
       const usageEndTime = new Date();
@@ -666,12 +624,11 @@ export class PaymentService {
       const usageTimeInMilliseconds =
         usageEndTime.getTime() - usageStartTime.getTime();
 
-      const userInfoAddress = this.getUserInfoAddress(
+      const userInfoAddress = this.programService.getUserInfoAddress(
         AccountType.INFO,
         userPublicKey,
       );
-      const userInfo =
-        await this.program.account.userInfo.fetch(userInfoAddress);
+      const userInfo = await this.programService.getUserInfo(userInfoAddress);
 
       if (!userInfo) {
         this.logger.error(`User [${userPublicKey.toString()}] info not found`);
@@ -699,7 +656,7 @@ export class PaymentService {
         const rawTotalPrice = totalHoursToPay * this.RAW_PRICE_PER_HOUR;
 
         // Pay for the used hours
-        await this.payPerHourThroughProgram(
+        await this.programService.payPerHour(
           userPublicKey,
           rawTotalPrice,
           newPerHoursLeftInSeconds,
@@ -713,7 +670,7 @@ export class PaymentService {
       } else {
         // Set per hours left after the usage
         const totalUsageInSeconds = Math.round(totalUsageInHours * 60 * 60); // 60 minutes * 60 seconds
-        await this.payPerHourThroughProgram(
+        await this.programService.payPerHour(
           userPublicKey,
           0, // No new hours to pay
           totalUsageInSeconds,
@@ -738,130 +695,11 @@ export class PaymentService {
       // Release resources if error occurs
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       await this.clearUserResources(userPublicKey.toString());
-      await this.unfreezeBalanceThroughProgram(client, userPublicKey);
+      await this.programService.unfreezeBalance(userPublicKey);
       this.logger.debug(
         `User's [${userPublicKey.toString()}] resources cleared`,
       );
     }
-  }
-
-  private async payPerMinuteThroughProgram(
-    userPublicKey: PublicKey,
-    rawPrice: number,
-  ): Promise<void> {
-    try {
-      const transaction = await this.program.methods
-        .payPerMinuteAndUnfreezeBalance(new anchor.BN(rawPrice))
-        .accounts({
-          user: userPublicKey,
-          token: this.TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([this.master])
-        .rpc();
-      this.logger.debug(`Payment done: [${transaction}]`);
-    } catch (error) {
-      this.logger.error(`Error paying per minute: [${error}]`);
-    }
-  }
-
-  private async payPerHourThroughProgram(
-    userPublicKey: PublicKey,
-    rawTotalPrice: number,
-    perHoursLeft: number,
-  ): Promise<void> {
-    try {
-      const transaction = await this.program.methods
-        .payPerHourAndUnfreezeBalance(
-          new anchor.BN(rawTotalPrice),
-          new anchor.BN(perHoursLeft),
-        )
-        .accounts({
-          user: userPublicKey,
-          token: this.TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([this.master])
-        .rpc();
-      this.logger.debug(`Payment done: [${transaction}]`);
-    } catch (error) {
-      this.logger.error(`Error paying per hour: [${error}]`);
-    }
-  }
-
-  private async refundBalanceThroughProgram(
-    userPublicKey: PublicKey,
-    rawTotalPrice: number,
-  ): Promise<string> {
-    try {
-      const transaction = await this.program.methods
-        .refund(rawTotalPrice)
-        .accounts({
-          user: userPublicKey,
-          token: this.TOKEN_ADDRESS,
-          tokenProgram: this.TOKEN_PROGRAM,
-        })
-        .signers([this.master])
-        .rpc();
-      this.logger.debug(
-        `Refund done for user [${userPublicKey.toString()}], transaction: [${transaction}]`,
-      );
-      return transaction;
-    } catch (error) {
-      this.logger.error(`Error refunding balance: [${error}]`);
-    }
-  }
-
-  private async freezeBalanceThroughProgram(
-    client: Socket,
-    userPublicKey: PublicKey,
-  ): Promise<string> {
-    try {
-      const transaction = await this.program.methods
-        .freezeBalance()
-        .accounts({
-          user: userPublicKey,
-        })
-        .signers([this.master])
-        .rpc();
-      return transaction;
-    } catch (error) {
-      this.logger.error(
-        `Error freezing user's [${userPublicKey.toString()}] balance: [${error}]`,
-      );
-      throw new Error(
-        this.i18nWs(client, 'payment.errors.balanceFreezingFailed'),
-      );
-    }
-  }
-
-  private async unfreezeBalanceThroughProgram(
-    client: Socket,
-    userPublicKey: PublicKey,
-  ): Promise<string> {
-    try {
-      const transaction = await this.program.methods
-        .unfreezeBalance()
-        .accounts({
-          user: userPublicKey,
-        })
-        .signers([this.master])
-        .rpc();
-      return transaction;
-    } catch (error) {
-      this.logger.error(
-        `Error unfreezing user's [${userPublicKey.toString()}] balance: [${error}]`,
-      );
-    }
-  }
-
-  private async getUserVaultBalance(
-    userVaultAddress: PublicKey,
-  ): Promise<number> {
-    const balanceInfo =
-      await this.connection.getTokenAccountBalance(userVaultAddress);
-    const balance = parseInt(balanceInfo.value.amount);
-    return balance;
   }
 
   private getTimeLimitPerMinutes(
@@ -909,13 +747,13 @@ export class PaymentService {
       // Pay for the used time
       // Depending on the selected payment method
       if (hasRemainingHours) {
-        await this.payPerHourThroughProgram(
+        await this.programService.payPerHour(
           userPublicKey,
           rawTotalPrice,
           0, // Reset hours left
         );
       } else {
-        await this.payPerMinuteThroughProgram(userPublicKey, rawTotalPrice);
+        await this.programService.payPerMinute(userPublicKey, rawTotalPrice);
       }
       this.logger.debug(
         `User [${userPublicKey.toString()}] paid for the used time: [${rawTotalPrice}] tokens`,
@@ -1015,17 +853,6 @@ export class PaymentService {
       userPublicKey.toString(),
     );
     this.logger.debug(`User [${userPublicKey.toString()}] free hours renewed`);
-  }
-
-  private getUserInfoAddress(
-    infoAccountType: AccountType,
-    userPublicKey: PublicKey,
-  ): PublicKey {
-    const [userInfoAddress] = PublicKey.findProgramAddressSync(
-      [Buffer.from(infoAccountType), userPublicKey.toBuffer()],
-      this.program.programId,
-    );
-    return userInfoAddress;
   }
 
   // TODO: rewrite

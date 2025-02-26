@@ -10,6 +10,7 @@ import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { FaucetModule } from './faucet/faucet.module';
 import * as path from 'path';
 import { LoggerModule } from 'nestjs-pino';
+import { DepositProgramModule } from './deposit-program/deposit-program.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { LoggerModule } from 'nestjs-pino';
     TranslationModule,
     PaymentModule,
     FaucetModule,
+    DepositProgramModule,
   ],
   providers: [
     TranslationModule,
