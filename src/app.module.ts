@@ -12,6 +12,8 @@ import { AdminTokenAuthMiddleware } from './utils/middlewares/admin-token-auth.m
 import { ThrottlerConfig } from './utils/configs/throttler.config';
 import { I18nConfig } from './utils/configs/i18n.config';
 import { LoggerConfig } from './utils/configs/logger.config';
+import { FaucetRoutes } from './faucet/constants/faucet-routes.enum';
+import { DepositProgramRoutes } from './deposit-program/constants/deposit-program-routes.enum';
 
 @Module({
   imports: [
@@ -41,6 +43,9 @@ export class AppModule implements NestModule {
     // Apply API token auth middleware to the admin-only routes
     consumer
       .apply(AdminTokenAuthMiddleware)
-      .forRoutes('faucet/configure', 'deposit-program/unfreeze-balance');
+      .forRoutes(
+        FaucetRoutes.ROOT + '/' + FaucetRoutes.CONFIGURE,
+        DepositProgramRoutes.ROOT + '/' + DepositProgramRoutes.UNFREEZE_BALANCE,
+      );
   }
 }

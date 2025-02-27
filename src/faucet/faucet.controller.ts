@@ -12,6 +12,8 @@ import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -19,25 +21,30 @@ import {
 import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 import { ConfigureFaucetDto } from './dto/configure-faucet.dto';
+import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
+import { FaucetRoutes } from './constants/faucet-routes.enum';
 
-@ApiTags('faucet')
-@Controller('faucet')
+@ApiTags(FaucetRoutes.ROOT)
+@Controller(FaucetRoutes.ROOT)
 export class FaucetController {
   constructor(private readonly faucetService: FaucetService) {}
-
   @ApiOperation({
     summary:
       'Allow user to claim USDC. Body is empty, gets publicKey from JWT and IP from request',
   })
   @ApiResponse({
-    status: 201,
+    status: HttpStatus.CREATED,
     description: `Returns transaction's signature`,
     type: ClaimFaucetResponseDto,
   })
   @ApiBearerAuth()
+  @ApiHeader({
+    name: HttpHeaders.AUTHORIZATION,
+    description: 'JWT access token. Bearer [token]',
+  })
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  @Post('claim')
+  @Post(FaucetRoutes.CLAIM)
   async claim(
     @JwtPublicKey() publicKey: string,
     @Ip() ip: string,
@@ -47,16 +54,23 @@ export class FaucetController {
 
   @ApiOperation({
     summary:
-      'Allow to configure the amount of USDC to claim per 24h. Requires API auth token',
+      'Allow to configure the amount of USDC to claim per 24h in program. Accessible only for admin',
+  })
+  @ApiBody({
+    type: ConfigureFaucetDto,
   })
   @ApiResponse({
-    status: 201,
+    status: HttpStatus.CREATED,
     description: `Returns transaction's signature`,
     type: ConfigureFaucetResponseDto,
   })
   @ApiBearerAuth()
+  @ApiHeader({
+    name: HttpHeaders.AUTHORIZATION,
+    description: 'Admin auth token. Bearer [token]',
+  })
   @HttpCode(HttpStatus.CREATED)
-  @Post('configure')
+  @Post(FaucetRoutes.CONFIGURE)
   async configureFaucet(
     @Body() dto: ConfigureFaucetDto,
   ): Promise<ConfigureFaucetResponseDto> {

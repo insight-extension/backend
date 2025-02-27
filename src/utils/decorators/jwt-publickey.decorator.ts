@@ -15,7 +15,7 @@ export const JwtPublicKey = createParamDecorator(
     try {
       const request = ctx.switchToHttp().getRequest();
       const authHeader = request.headers.authorization;
-
+      // TODO: replace with i18n
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
         throw new UnauthorizedException(
           'Authorization header is missing or invalid',

@@ -11,7 +11,7 @@ import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { DepositProgram } from './interfaces/deposit_program';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import 'dotenv/config';
-import { AccountType } from 'src/payment/constants/account-type.enum';
+import { DepositProgramAccountType } from 'src/deposit-program/constants/account-type.enum';
 import { UnfreezeBalanceResponseDto } from './dto/unfreeze-balance-response.dto';
 
 @Injectable()
@@ -42,7 +42,7 @@ export class DepositProgramService {
   }
 
   getUserInfoAddress(
-    infoAccountType: AccountType,
+    infoAccountType: DepositProgramAccountType,
     userPublicKey: string,
   ): PublicKey {
     const publicKey = new PublicKey(userPublicKey);

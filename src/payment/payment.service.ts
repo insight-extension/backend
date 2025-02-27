@@ -15,7 +15,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
-import { AccountType } from './constants/account-type.enum';
+import { DepositProgramAccountType as DepositProgramAccount } from '../deposit-program/constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
@@ -55,7 +55,7 @@ export class PaymentService {
     try {
       // User's PDA address
       const userInfoAddress = this.programService.getUserInfoAddress(
-        AccountType.INFO,
+        DepositProgramAccount.INFO,
         userPublicKey,
       );
 
@@ -177,7 +177,7 @@ export class PaymentService {
       this.logger.debug(`User [${userPublicKey}] started paying per usage`);
 
       const userInfoAddress = this.programService.getUserInfoAddress(
-        AccountType.INFO,
+        DepositProgramAccount.INFO,
         userPublicKey,
       );
 
@@ -452,7 +452,7 @@ export class PaymentService {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       this.logger.debug(`Starting pay per hours for [${userPublicKey}]`);
       const userInfoAddress = this.programService.getUserInfoAddress(
-        AccountType.INFO,
+        DepositProgramAccount.INFO,
         userPublicKey,
       );
 
@@ -575,7 +575,7 @@ export class PaymentService {
         usageEndTime.getTime() - usageStartTime.getTime();
 
       const userInfoAddress = this.programService.getUserInfoAddress(
-        AccountType.INFO,
+        DepositProgramAccount.INFO,
         userPublicKey,
       );
       const userInfo = await this.programService.getUserInfo(userInfoAddress);

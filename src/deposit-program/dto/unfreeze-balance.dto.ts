@@ -7,6 +7,7 @@ export class UnfreezeBalanceDto {
     description: 'Public key of the account to unfreeze',
     type: String,
   })
+  @IsString()
   @IsSolPubkey()
   publicKey: string;
 }

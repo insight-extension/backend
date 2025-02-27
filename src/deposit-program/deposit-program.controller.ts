@@ -1,23 +1,48 @@
-import { Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Controller,
+  Header,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { DepositProgramService } from './deposit-program.service';
 import { UnfreezeBalanceDto } from './dto/unfreeze-balance.dto';
 import { UnfreezeBalanceResponseDto } from './dto/unfreeze-balance-response.dto';
-import { ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiHeader,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { DepositProgramRoutes } from './constants/deposit-program-routes.enum';
+import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 
-@Controller('deposit-program')
+@ApiTags(DepositProgramRoutes.ROOT)
+@Controller(DepositProgramRoutes.ROOT)
 export class DepositProgramController {
   constructor(private readonly depositProgramService: DepositProgramService) {}
   // TODO: rewrite swagger and move controllers and endpoints constants to enums
   @ApiOperation({
-    summary: 'Unfreezes user balance',
+    summary: 'Unfreezes user balance. Accessible only for admin.',
   })
-  @ApiResponse({
-    status: 201,
-    description: `Returns transaction's signature`,
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: HttpHeaders.AUTHORIZATION,
+    description: 'Admin auth token. Bearer [token]',
+  })
+  @ApiBody({
     type: UnfreezeBalanceDto,
   })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: `Returns transaction's signature`,
+    type: UnfreezeBalanceResponseDto,
+  })
   @HttpCode(HttpStatus.CREATED)
-  @Post('unfreeze-balance')
+  @Post(DepositProgramRoutes.UNFREEZE_BALANCE)
   async unfreezeBalance(
     dto: UnfreezeBalanceDto,
   ): Promise<UnfreezeBalanceResponseDto> {
