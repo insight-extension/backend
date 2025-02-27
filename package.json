@@ -100,5 +100,18 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:watch": "jest --watch"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "bigint-buffer",
+      "bufferutil",
+      "esbuild",
+      "nestjs-pino",
+      "prisma",
+      "utf-8-validate"
+    ]
   }
 }

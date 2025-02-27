@@ -13,11 +13,11 @@ import { OpenAI } from 'openai';
 import { Socket, Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import 'dotenv/config';
-import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
 import { ExtraHeaders } from './constants/extra-headers.enum';
 import { TranslationLanguages } from './constants/translation-languages.enum';
 import { WsEvents } from './constants/ws-events.enum';
+import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
