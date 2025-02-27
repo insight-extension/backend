@@ -66,4 +66,12 @@ export class AccountService {
       freeHoursStartDate: account.freeHoursStartDate,
     };
   }
+
+  async deleteAccount(userPublicKey: string): Promise<void> {
+    await this.prisma.account.delete({
+      where: {
+        publicKey: userPublicKey,
+      },
+    });
+  }
 }

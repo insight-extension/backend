@@ -41,13 +41,9 @@ import { DepositProgramRoutes } from './deposit-program/constants/deposit-progra
 export class AppModule implements NestModule {
   // Make ModuleRef globally available to allow DI
   // without constructor (e.g. decorators)
-  public static readonly moduleRef: ModuleRef;
+  public static moduleRef: ModuleRef;
   constructor(private readonly moduleRef: ModuleRef) {
-    // Set moduleRef injected instance to the static readonly property
-    Object.defineProperty(AppModule, 'moduleRef', {
-      value: moduleRef,
-      writable: false,
-    });
+    AppModule.moduleRef = moduleRef;
   }
 
   // Middlewares configuration
