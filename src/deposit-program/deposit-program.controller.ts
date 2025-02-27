@@ -24,7 +24,6 @@ import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 @Controller(DepositProgramRoutes.ROOT)
 export class DepositProgramController {
   constructor(private readonly depositProgramService: DepositProgramService) {}
-  // TODO: rewrite swagger and move controllers and endpoints constants to enums
   @ApiOperation({
     summary: 'Unfreezes user balance. Accessible only for admin.',
   })

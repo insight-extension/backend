@@ -1,5 +1,5 @@
 import * as anchor from '@coral-xyz/anchor';
-import * as idl from './interfaces/deposit_program.json';
+import * as idl from './idl/deposit_program.json';
 import {
   AnchorProvider,
   Program,
@@ -8,7 +8,7 @@ import {
 } from '@coral-xyz/anchor';
 import { Injectable, Logger } from '@nestjs/common';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { DepositProgram } from './interfaces/deposit_program';
+import { DepositProgram } from './idl/deposit_program';
 import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import 'dotenv/config';
 import { DepositProgramAccountType } from 'src/deposit-program/constants/account-type.enum';

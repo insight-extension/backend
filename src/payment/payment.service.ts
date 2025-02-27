@@ -19,6 +19,7 @@ import { DepositProgramAccountType as DepositProgramAccount } from '../deposit-p
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
+import { WsEvents } from 'src/translation/constants/ws-events.enum';
 
 @Injectable()
 export class PaymentService {
@@ -818,7 +819,7 @@ export class PaymentService {
       },
       statusCode,
     );
-    client.emit('error', errorToEmit.getResponse());
+    client.emit(WsEvents.ERROR, errorToEmit.getResponse());
   }
 
   private i18nWs(client: Socket, textToTranslate: string): string {

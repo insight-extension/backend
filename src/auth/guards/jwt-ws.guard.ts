@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import 'dotenv/config';
 import { Socket } from 'socket.io';
 import { AccountService } from 'src/account/account.service';
+import { WsEvents } from 'src/translation/constants/ws-events.enum';
 
 @Injectable()
 export class WsJwtGuard {
@@ -48,7 +49,7 @@ export class WsJwtGuard {
         },
         HttpStatus.FORBIDDEN,
       );
-      client.emit('error', errorToEmit.getResponse());
+      client.emit(WsEvents.ERROR, errorToEmit.getResponse());
       client.disconnect();
       Logger.warn(
         `Client's [${client.id}] JWT verification failed: ${error.message}`,

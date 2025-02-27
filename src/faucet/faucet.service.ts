@@ -14,10 +14,10 @@ import {
   setProvider,
   Wallet,
 } from '@coral-xyz/anchor';
-import * as idl from './interfaces/insight_faucet.json';
+import * as idl from './idl/insight_faucet.json';
 import * as anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { InsightFaucet } from './interfaces/insight_faucet';
+import { InsightFaucet } from './idl/insight_faucet';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
@@ -53,8 +53,6 @@ export class FaucetService {
     this.program = new Program(idl as InsightFaucet, this.anchorProvider);
   }
 
-  // TODO: Improve error handling. We should also check if the public key
-  // has already claimed the faucet and handle the error if the transaction fails.
   async claim(publicKey: string, ip: string): Promise<ClaimFaucetResponseDto> {
     try {
       // Check if the IP address has already claimed the faucet
