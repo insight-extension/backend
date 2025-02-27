@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, ModuleRef } from '@nestjs/core';
 import { TranslationModule } from './translation/translation.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AccountModule } from 'src/account/account.module';
@@ -39,13 +39,25 @@ import { DepositProgramRoutes } from './deposit-program/constants/deposit-progra
   ],
 })
 export class AppModule implements NestModule {
+  // Make ModuleRef globally available to allow DI
+  // without constructor (e.g. decorators)
+  public static readonly moduleRef: ModuleRef;
+  constructor(private readonly moduleRef: ModuleRef) {
+    // Set moduleRef injected instance to the static readonly property
+    Object.defineProperty(AppModule, 'moduleRef', {
+      value: moduleRef,
+      writable: false,
+    });
+  }
+
+  // Middlewares configuration
   configure(consumer: MiddlewareConsumer) {
     // Apply API token auth middleware to the admin-only routes
     consumer
       .apply(AdminTokenAuthMiddleware)
       .forRoutes(
-        FaucetRoutes.ROOT + '/' + FaucetRoutes.CONFIGURE,
-        DepositProgramRoutes.ROOT + '/' + DepositProgramRoutes.UNFREEZE_BALANCE,
+        `${FaucetRoutes.ROOT}/${FaucetRoutes.CONFIGURE}`,
+        `${DepositProgramRoutes.ROOT}/${DepositProgramRoutes.UNFREEZE_BALANCE}`,
       );
   }
 }

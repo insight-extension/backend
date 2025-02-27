@@ -6,13 +6,20 @@ import {
   ValidationArguments,
 } from 'class-validator';
 import { PublicKey } from '@solana/web3.js';
+import { I18nService } from 'nestjs-i18n';
+import { AppModule } from 'src/app.module';
+import { i18n } from '../types/i18n.type';
 
 /*
   Validate is string correct Solana public key on curve
 */
-
 @ValidatorConstraint({ async: false })
 export class IsSolPubkeyConstraint implements ValidatorConstraintInterface {
+  // Get i18n instance from app
+  private readonly i18n = AppModule.moduleRef.get(I18nService<i18n>, {
+    strict: false,
+  });
+
   validate(address: unknown, args: ValidationArguments): boolean {
     try {
       const pubkey = new PublicKey(address);
@@ -22,9 +29,8 @@ export class IsSolPubkeyConstraint implements ValidatorConstraintInterface {
     }
   }
 
-  // TODO: replace with i18n
   defaultMessage(args: ValidationArguments): string {
-    return `${args.property} must be a valid Solana address on the curve`;
+    return `${args.property} ${this.i18n.t('utils.decorators.isSolPubkey.defaultMessage')}`;
   }
 }
 

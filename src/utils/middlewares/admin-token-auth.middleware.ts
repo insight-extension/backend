@@ -1,9 +1,4 @@
-import {
-  HttpStatus,
-  Logger,
-  NestMiddleware,
-  OnModuleInit,
-} from '@nestjs/common';
+import { HttpStatus, Logger, NestMiddleware } from '@nestjs/common';
 import 'dotenv/config';
 import { NextFunction, Request, Response } from 'express';
 

@@ -40,10 +40,6 @@ export class PaymentController {
     type: RefundBalanceResponseDto,
   })
   @ApiBearerAuth()
-  @ApiHeader({
-    name: HttpHeaders.AUTHORIZATION,
-    description: 'JWT access token. Bearer [token]',
-  })
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @Post(PaymentRoutes.REFUND_BALANCE)

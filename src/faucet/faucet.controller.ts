@@ -38,10 +38,6 @@ export class FaucetController {
     type: ClaimFaucetResponseDto,
   })
   @ApiBearerAuth()
-  @ApiHeader({
-    name: HttpHeaders.AUTHORIZATION,
-    description: 'JWT access token. Bearer [token]',
-  })
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @Post(FaucetRoutes.CLAIM)
@@ -65,10 +61,6 @@ export class FaucetController {
     type: ConfigureFaucetResponseDto,
   })
   @ApiBearerAuth()
-  @ApiHeader({
-    name: HttpHeaders.AUTHORIZATION,
-    description: 'Admin auth token. Bearer [token]',
-  })
   @HttpCode(HttpStatus.CREATED)
   @Post(FaucetRoutes.CONFIGURE)
   async configureFaucet(
