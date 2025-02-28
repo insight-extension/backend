@@ -65,7 +65,6 @@ export class PaymentService {
       // Check if balance is frozen
       const isBalanceFrozen = userInfo.isBalanceFrozen;
       if (isBalanceFrozen) {
-        this.logger.error(`User [${userPublicKey}] balance is frozen`);
         throw new Error(this.i18n.t('payment.errors.balanceIsFrozen'));
       }
 
@@ -78,7 +77,6 @@ export class PaymentService {
 
       // Check if user has sufficient balance to refund
       if (userVaultBalance < amount) {
-        this.logger.error(`User [${userPublicKey}] has insufficient balance`);
         throw new Error(this.i18n.t('payment.errors.insufficientBalance'));
       }
 
@@ -96,8 +94,8 @@ export class PaymentService {
 
       // Throw exception to client
       throw new BadRequestException(
-        this.i18n.t('payment.messages.BalanceRefundFailed'),
-        error.message,
+        this.i18n.t('payment.messages.BalanceRefundFailed') +
+          ` ${error.message}`,
       );
     }
   }

@@ -13,6 +13,7 @@ import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import 'dotenv/config';
 import { DepositProgramAccountType } from 'src/deposit-program/constants/account-type.enum';
 import { UnfreezeBalanceResponseDto } from './dto/unfreeze-balance-response.dto';
+import { GetUserInfo } from './types/get-user-info.type';
 
 @Injectable()
 export class DepositProgramService {
@@ -53,7 +54,7 @@ export class DepositProgramService {
     return userInfoAddress;
   }
 
-  async getUserInfo(userInfoAddress: PublicKey) {
+  async getUserInfo(userInfoAddress: PublicKey): Promise<GetUserInfo> {
     return await this.program.account.userInfo.fetch(userInfoAddress);
   }
 

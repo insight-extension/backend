@@ -3,6 +3,10 @@ import { Keypair } from '@solana/web3.js';
 import { AuthService } from 'src/auth/auth.service';
 import * as nacl from 'tweetnacl';
 
+/*
+ *  EVERY TIME CREATES A NEW USER IN DB
+ *  USER SHOULD BE DELETED AFTER TEST
+ */
 export async function getAccessToken(
   authService: AuthService,
   user: Keypair,
@@ -12,6 +16,10 @@ export async function getAccessToken(
   return accessToken;
 }
 
+/*
+ *  EVERY TIME CREATES A NEW USER IN DB
+ *  USER SHOULD BE DELETED AFTER TEST
+ */
 export async function getRefreshToken(
   authService: AuthService,
   user: Keypair,
