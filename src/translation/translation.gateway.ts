@@ -31,7 +31,7 @@ export class TranslationGateway
   ) {}
 
   @WebSocketServer()
-  private server: Server;
+  private readonly server: Server;
 
   // Active client sessions: clientId -> { session, apiKey }
   private speechmaticsSessions: Map<
@@ -51,7 +51,7 @@ export class TranslationGateway
   private readonly OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
   // OpenAI client
-  private openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
+  private readonly openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
 
   afterInit() {
     this.logger.log('Translation gateway initialized');

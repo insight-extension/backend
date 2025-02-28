@@ -8,7 +8,7 @@ import { AuthService } from 'src/auth/auth.service';
 import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 import { AccountService } from 'src/account/account.service';
 import { Keypair } from '@solana/web3.js';
-import { getAccessToken } from './utils/helpers';
+import { getAccessToken } from './utils/auth.helper';
 
 describe('Account Module (e2e)', () => {
   let app: INestApplication;

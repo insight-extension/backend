@@ -6,11 +6,11 @@ import { FaucetService } from 'src/faucet/faucet.service';
 import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 import { AppModule } from 'src/app.module';
 import { Keypair } from '@solana/web3.js';
-import { getAccessToken } from './utils/helpers';
+import { getAccessToken } from './utils/auth.helper';
 import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
 
-describe('FaucetController', () => {
+describe('Faucet Module', () => {
   let app: INestApplication;
   let faucetService: FaucetService;
   let accessToken: string;

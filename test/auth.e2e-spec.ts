@@ -7,7 +7,7 @@ import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
 import { Keypair } from '@solana/web3.js';
 import { AuthRoutes } from 'src/auth/constants/auth-routes.enum';
-import { getRefreshToken, getSignature } from './utils/helpers';
+import { getRefreshToken, getSignature } from './utils/auth.helper';
 import { VerifyDto } from 'src/auth/dto/verify.dto';
 import { VerifyResponseDto } from 'src/auth/dto/verify-response.dto';
 

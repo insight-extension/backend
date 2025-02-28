@@ -4,13 +4,13 @@ import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PaymentService } from '../src/payment/payment.service';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { getAccessToken } from './utils/helpers';
+import { getAccessToken } from './utils/auth.helper';
 import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 import { GetUserInfo } from 'src/deposit-program/types/get-user-info.type';
 
-describe('PaymentController (e2e)', () => {
+describe('PaymentModule (e2e)', () => {
   let app: INestApplication;
   let paymentService: PaymentService;
   let user: Keypair;
@@ -67,6 +67,7 @@ describe('PaymentController (e2e)', () => {
     await app.init();
   });
 
+  // --- TEST REFUND BALANCE ---
   it('/payment/refund-balance (POST) - should refund user balance', async () => {
     const mockedUserInfo: GetUserInfo = {
       perHourLeft: 0,

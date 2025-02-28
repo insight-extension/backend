@@ -23,12 +23,14 @@ export class WsJwtGuard {
       // Get handshake headers
       const authHeader = client.request.headers.authorization;
       if (!authHeader) {
+        // TODO: Add i18n
         throw new ForbiddenException('Authorization header is missing');
       }
 
       // Get bearer token from headers
       const bearerToken = authHeader.split(' ')[1];
       if (!bearerToken) {
+        // TODO: Add i18n
         throw new ForbiddenException('Token is missing');
       }
 
@@ -43,6 +45,7 @@ export class WsJwtGuard {
       // Emit error to client and disconnect
       const errorToEmit = new HttpException(
         {
+          // TODO: Add i18n
           message: 'Error while authenticating user',
           error: error.message,
           statusCode: HttpStatus.FORBIDDEN,
@@ -51,6 +54,7 @@ export class WsJwtGuard {
       );
       client.emit(WsEvents.ERROR, errorToEmit.getResponse());
       client.disconnect();
+      //TODO: Add logger
       Logger.warn(
         `Client's [${client.id}] JWT verification failed: ${error.message}`,
       );
