@@ -147,7 +147,7 @@ describe('Auth Module (e2e)', () => {
 
   // Cleanup after all tests
   afterEach(async () => {
-    //await accountService.deleteAccount(user.publicKey.toString()); // Delete the account created during testing
+    await accountService.deleteAccount(user.publicKey.toString());
     await app.close();
   });
 });
