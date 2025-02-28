@@ -9,11 +9,9 @@ import { JwtService } from '@nestjs/jwt';
 import { VerifyDto } from './dto/verify.dto';
 import { ClaimNonceDto as ClaimNonceDto } from './dto/claim-nonce.dto';
 import { randomBytes } from 'crypto';
-import { ValidateSignatureDto } from './dto/validate-signature.dto';
 import bs58 from 'bs58';
 import { sign } from 'tweetnacl';
 import { AccountCandidates } from './types/account-candidates.type';
-import { GetNonceDto } from './dto/get-nonce.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
@@ -37,42 +35,49 @@ export class AuthService {
     // cacheManager<key: string(publicKey), value: string(nonce)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
+  // Send nonce to client for signing
+  async claimNonce(dto: ClaimNonceDto): Promise<ClaimNonceResponseDto> {
+    try {
+      const { publicKey, nonce } = await this.generateNonceForPublicKey({
+        publicKey: dto.publicKey,
+      });
+      return {
+        publicKey,
+        nonce,
+      };
+    } catch (error) {
+      throw new BadRequestException(this.i18n.t('auth.claimFailed'));
+    }
+  }
 
   // Validate signed signature from client and return jwt tokens
   async verify(dto: VerifyDto): Promise<VerifyResponseDto> {
-    const account = await this.validateSignature(dto);
-    if (!account) {
-      this.logger.error('Invalid signature detected', dto);
-      throw new Error(this.i18n.t('auth.invalidSignature'));
+    try {
+      const account = await this.validateSignature(dto);
+      if (!account) {
+        this.logger.error('Invalid signature detected', dto);
+        throw new BadRequestException();
+      }
+
+      const accountExists = await this.accountService.findOneByPublicKey(
+        account.publicKey,
+      );
+      if (!accountExists) {
+        this.accountService.saveAccount(account);
+      }
+
+      return {
+        accessToken: await this.generateAccessToken({
+          publicKey: account.publicKey,
+        }),
+        refreshToken: await this.generateRefreshToken({
+          publicKey: account.publicKey,
+        }),
+      };
+    } catch (error) {
+      this.logger.error('Error during signature verification', error.message);
+      throw new BadRequestException(this.i18n.t('auth.invalidSignature'));
     }
-
-    const accountExists = await this.accountService.findOneByPublicKey(
-      account.publicKey,
-    );
-    if (!accountExists) {
-      this.accountService.saveAccount(account);
-    }
-
-    return {
-      accessToken: await this.generateAccessToken({
-        publicKey: account.publicKey,
-      }),
-      refreshToken: await this.generateRefreshToken({
-        publicKey: account.publicKey,
-      }),
-    };
-  }
-
-  // Send nonce to client for signing
-  async claimNonce(dto: ClaimNonceDto): Promise<ClaimNonceResponseDto> {
-    const { publicKey, nonce } = await this.generateNonceForPublicKey({
-      publicKey: dto.publicKey,
-    });
-
-    return {
-      publicKey,
-      nonce,
-    };
   }
 
   // Refresh access and refresh tokens by providing refresh token
@@ -114,7 +119,7 @@ export class AuthService {
   }
 
   // Validate signed by client nonce
-  private async validateSignature(dto: ValidateSignatureDto) {
+  private async validateSignature(dto: VerifyDto): Promise<ValidateSignature> {
     const nonce: string = await this.cacheManager.get(dto.publicKey);
     if (!nonce) {
       this.logger.error(`Nonce not found for publicKey: ${dto.publicKey}`);
@@ -134,7 +139,6 @@ export class AuthService {
       this.logger.error(`Invalid signature for publicKey: ${dto.publicKey}`);
       throw new BadRequestException(this.i18n.t('auth.invalidSignature'));
     }
-
     return {
       publicKey: dto.publicKey,
     };
@@ -142,7 +146,7 @@ export class AuthService {
 
   // Generate a new nonce or return an existing for publickey
   private async generateNonceForPublicKey(
-    dto: GetNonceDto,
+    dto: ClaimNonceDto,
   ): Promise<AccountCandidates> {
     const existingNonce: string = await this.cacheManager.get(dto.publicKey);
     if (existingNonce) {
