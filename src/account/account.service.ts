@@ -22,12 +22,12 @@ export class AccountService {
     });
   }
 
-  async getFreeHours(userPublicKey: string): Promise<number> {
+  async getFreeHoursLeft(userPublicKey: string): Promise<number> {
     const account: AccountEntity = await this.findOneByPublicKey(userPublicKey);
     return account.freeHoursLeft;
   }
 
-  async setFreeHours(hours: number, userPublicKey: string): Promise<void> {
+  async setFreeHoursLeft(hours: number, userPublicKey: string): Promise<void> {
     await this.prisma.account.update({
       where: {
         publicKey: userPublicKey,
@@ -71,6 +71,14 @@ export class AccountService {
     await this.prisma.account.delete({
       where: {
         publicKey: userPublicKey,
+      },
+    });
+  }
+
+  async deleteManyAccounts(accounts: string[]): Promise<void> {
+    await this.prisma.account.deleteMany({
+      where: {
+        publicKey: { in: accounts },
       },
     });
   }

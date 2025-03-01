@@ -8,27 +8,36 @@ import { UnfreezeBalanceDto } from '../src/deposit-program/dto/unfreeze-balance.
 import 'dotenv/config';
 import { Keypair } from '@solana/web3.js';
 import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
+import { MockDepositProgramService } from './utils/deposit-program.mock';
 
 describe('DepositProgram Module (e2e)', () => {
   let app: INestApplication;
-  let depositProgramService: DepositProgramService;
+  let mockedDepositService: MockDepositProgramService;
   const adminToken = process.env.ADMIN_AUTH_TOKEN;
   let user: Keypair;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(DepositProgramService)
+      .useValue(new MockDepositProgramService())
+      .compile();
 
-    depositProgramService = moduleFixture.get<DepositProgramService>(
+    mockedDepositService = moduleFixture.get<MockDepositProgramService>(
       DepositProgramService,
     );
 
     user = Keypair.generate();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: false });
     app.useGlobalPipes(new ValidationPipe());
     await app.init();
+  });
+
+  // Reset the mocked values before each test
+  beforeEach(() => {
+    mockedDepositService.clearState();
   });
 
   afterAll(async () => {
@@ -41,7 +50,7 @@ describe('DepositProgram Module (e2e)', () => {
       .post(
         `/${DepositProgramRoutes.ROOT}/${DepositProgramRoutes.UNFREEZE_BALANCE}`,
       )
-      .send({ publicKey: 'invalid-public-key' })
+      .send({ publicKey: user.publicKey.toString() })
       .set(HttpHeaders.AUTHORIZATION, `Bearer invalid-token`)
       .expect(HttpStatus.UNAUTHORIZED);
   });
@@ -58,10 +67,8 @@ describe('DepositProgram Module (e2e)', () => {
 
   it('POST /deposit-program/unfreeze-balance - success', async () => {
     const dto: UnfreezeBalanceDto = { publicKey: user.publicKey.toString() };
-
-    jest.spyOn(depositProgramService, 'unfreezeBalance').mockResolvedValue({
-      transaction: 'mockTransactionSignature',
-    });
+    // Simulate the user's balance being frozen
+    mockedDepositService.isBalanceFrozen = true;
 
     const response = await request(app.getHttpServer())
       .post(
@@ -72,6 +79,9 @@ describe('DepositProgram Module (e2e)', () => {
       .expect(HttpStatus.CREATED);
 
     expect(response.body).toHaveProperty('transaction');
-    expect(response.body.transaction).toBe('mockTransactionSignature');
+    expect(response.body.transaction).toBe(
+      mockedDepositService.mockedTransaction,
+    );
+    expect(mockedDepositService.isBalanceFrozen).toBe(false);
   });
 });

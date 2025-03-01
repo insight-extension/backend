@@ -28,7 +28,7 @@ describe('Account Module (e2e)', () => {
     accessToken = await getAccessToken(authService, user);
 
     // Initialize the NestJS application
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: false });
     app.useGlobalPipes(new ValidationPipe());
     await app.init(); // Initialize the app
   });

@@ -34,9 +34,8 @@ export class WsJwtGuard {
         throw new ForbiddenException('Token is missing');
       }
 
-      // Get payload from encoded token
       // Throws error if token is invalid
-      const payload = await this.jwtService.verifyAsync(bearerToken, {
+      const payload = this.jwtService.verify(bearerToken, {
         secret: process.env.JWT_SECRET,
       });
 

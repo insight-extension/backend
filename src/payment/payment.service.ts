@@ -6,7 +6,6 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { PublicKey } from '@solana/web3.js';
 import { Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Cache } from 'cache-manager';
@@ -27,7 +26,7 @@ export class PaymentService {
 
   // Prices in raw format
   private readonly RAW_PRICE_PER_MINUTE =
-    SubscriptionPrice.PER_USAGE * 1_000_000;
+    SubscriptionPrice.PER_MINUTE * 1_000_000;
   private readonly RAW_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
 
   // Free hours configuration values
@@ -338,7 +337,7 @@ export class PaymentService {
 
       // Check if renew is available
       let userFreeHoursLeft =
-        await this.accountService.getFreeHours(userPublicKey);
+        await this.accountService.getFreeHoursLeft(userPublicKey);
       const differenceInMilliseconds =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
@@ -376,7 +375,6 @@ export class PaymentService {
       this.logger.debug(
         `User [${userPublicKey}] set cache with start time: [${currentUsageStartTime}]`,
       );
-
       this.logger.debug(
         `User [${userPublicKey}] started using free hours at [${currentUsageStartTime}]`,
       );
@@ -418,14 +416,14 @@ export class PaymentService {
 
       // Get user's free hours left in seconds
       const userFreeHoursLeft =
-        await this.accountService.getFreeHours(userPublicKey);
+        await this.accountService.getFreeHoursLeft(userPublicKey);
 
       // Convert time difference to seconds
       const totalUsedTime = Math.round(timeDifferenceInMilliseconds / 1000); // 1000 ms
       const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
-      await this.accountService.setFreeHours(
+      await this.accountService.setFreeHoursLeft(
         remainingFreeHoursInSeconds,
         userPublicKey,
       );
@@ -469,7 +467,6 @@ export class PaymentService {
         throw new Error(this.i18nWs(client, 'payment.errors.userInfoNotFound'));
       }
       const perHoursLeft: number = userInfo.perHourLeft.toNumber();
-
       const hasRemainingHours = perHoursLeft > 0;
 
       // Check if user have not used free hours from last using
@@ -688,7 +685,6 @@ export class PaymentService {
       usageTimeLimit.getTime() - usageStartTime.getTime();
 
     const taskName = userPublicKey;
-
     // Define timeout callback to execute when time limit is reached
     const timeoutCallback = async () => {
       // Pay for the used time
@@ -739,7 +735,7 @@ export class PaymentService {
   ): Promise<void> {
     const timeoutCallback = async () => {
       // Reset user's free hours to 0
-      await this.accountService.setFreeHours(0, userPublicKey);
+      await this.accountService.setFreeHoursLeft(0, userPublicKey);
       this.cacheManager.del(userPublicKey);
 
       this.logger.debug(`User's [${userPublicKey}] cache deleted`);
@@ -758,7 +754,7 @@ export class PaymentService {
     };
 
     // Add timeout to scheduler registry
-    const millisecondsToExecute = userFreeHoursLeft * 60 * 1000; // 60 seconds * 1000 milliseconds
+    const millisecondsToExecute = userFreeHoursLeft * 1000; // 60 seconds * 1000 milliseconds
     const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
     const taskName = userPublicKey;
     this.schedulerRegistry.addTimeout(taskName, timeout);
@@ -791,7 +787,7 @@ export class PaymentService {
     userPublicKey: string,
   ): Promise<void> {
     // Renew free hours and set the start date to the current time
-    await this.accountService.setFreeHours(
+    await this.accountService.setFreeHoursLeft(
       this.USER_DEFAULT_FREE_HOURS,
       userPublicKey,
     );

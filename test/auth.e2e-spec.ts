@@ -17,6 +17,7 @@ describe('Auth Module (e2e)', () => {
   let user: Keypair;
   let authService: AuthService;
   let refreshToken: string;
+
   // Setup before all tests
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -31,7 +32,7 @@ describe('Auth Module (e2e)', () => {
     refreshToken = await getRefreshToken(authService, user);
 
     // Initialize the NestJS application
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: false });
     app.useGlobalPipes(new ValidationPipe());
     await app.init();
   });

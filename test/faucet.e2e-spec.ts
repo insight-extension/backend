@@ -35,7 +35,7 @@ describe('Faucet Module', () => {
     user = Keypair.generate();
     accessToken = await getAccessToken(authService, user);
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: false });
     app.useGlobalPipes(new ValidationPipe());
     await app.init();
   });
