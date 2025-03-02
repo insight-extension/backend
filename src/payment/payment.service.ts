@@ -19,6 +19,7 @@ import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 import { WsEvents } from 'src/translation/constants/ws-events.enum';
+import { JwtPayload } from 'src/auth/types/jwt-payload.type';
 
 @Injectable()
 export class PaymentService {
@@ -668,8 +669,8 @@ export class PaymentService {
     const bearerToken = authHeader.split(' ')[1];
 
     // Encode payload from token
-    // TODO: add type for payload
-    const payload = this.jwtService.decode(bearerToken);
+
+    const payload: JwtPayload = this.jwtService.decode(bearerToken);
     return payload.publicKey;
   }
 

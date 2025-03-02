@@ -176,7 +176,7 @@ export class TranslationGateway
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
       );
-      // TODO: Add i18n. Remove unnecessary constants from i18n file
+      // TODO: Add i18n
       client.emit(WsEvents.ERROR, { message: 'Failed to process audio data.' });
     }
   }

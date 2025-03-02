@@ -16,7 +16,7 @@ import { i18n } from '../types/i18n.type';
 @ValidatorConstraint({ async: false })
 export class IsSolPubkeyConstraint implements ValidatorConstraintInterface {
   // Get i18n instance from app
-  private readonly i18n = AppModule.moduleRef.get(I18nService<i18n>, {
+  private readonly i18n = AppModule.getModuleRef().get(I18nService<i18n>, {
     strict: false,
   });
 

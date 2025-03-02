@@ -39,11 +39,15 @@ import { DepositProgramRoutes } from './deposit-program/constants/deposit-progra
   ],
 })
 export class AppModule implements NestModule {
-  // Make ModuleRef globally available to allow DI
-  // without constructor (e.g. decorators)
-  public static moduleRef: ModuleRef;
+  // Make ModuleRef globally available to allow usage of DI
+  // container instances without constructor (e.g. decorators)
+  private static moduleRef: ModuleRef;
   constructor(private readonly moduleRef: ModuleRef) {
     AppModule.moduleRef = moduleRef;
+  }
+  
+  public static getModuleRef(): ModuleRef {
+    return this.moduleRef;
   }
 
   // Middlewares configuration
