@@ -15,6 +15,8 @@ import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
+import { ExtraHeaders } from './constants/extra-headers.enum';
+import { TranslationLanguages } from './constants/translation-languages.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -66,7 +68,7 @@ export class TranslationGateway
       // Start translation with required payment method
       await this.paymentService.startPaymentWithRequiredMethod(client);
 
-      client.on('audioData', async (data: any) => {
+      client.on('audioData', async (data: unknown) => {
         if (data instanceof Uint8Array) {
           this.logger.debug('Audio data received');
           await this.handleAudioData(Buffer.from(data), client);
@@ -138,7 +140,7 @@ export class TranslationGateway
           session = await this.createSpeechmaticsSession(apiKey, client.id);
         } catch (error) {
           this.apiKeyUsage.set(apiKey, false);
-          throw new Error(error);
+          throw new Error(error.message);
         }
 
         // Check if the client disconnected while the session was being created
@@ -193,8 +195,34 @@ export class TranslationGateway
     clientId: string,
   ): Promise<RealtimeSession> {
     this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
-
     const session = new RealtimeSession(apiKey);
+
+    // Get the client socket's instance
+    const client = this.server.sockets.sockets.get(clientId);
+
+    // Get languages from headers
+    const sourceLanguage = this.extractHeaderValue(
+      client,
+      ExtraHeaders.SOURCE_LANGUAGE,
+    );
+    const targetLanguage = this.extractHeaderValue(
+      client,
+      ExtraHeaders.TARGET_LANGUAGE,
+    );
+    this.logger.debug(
+      `Source language: ${sourceLanguage}, Target language: ${targetLanguage}`,
+    );
+
+    // Validate languages
+    if (
+      !this.isValidTranslationLanguage(sourceLanguage) ||
+      !this.isValidTranslationLanguage(targetLanguage)
+    ) {
+      throw new Error('Invalid source or target language.');
+    }
+    if (sourceLanguage === targetLanguage) {
+      throw new Error('Source and target languages are the same.');
+    }
 
     // Buffer for accumulating text received from the client
     let clientBuffer = '';
@@ -218,8 +246,8 @@ export class TranslationGateway
             // Translate the extracted sentence
             const translatedText = await this.translateText(
               sentence,
-              'en',
-              'ua',
+              sourceLanguage,
+              targetLanguage,
             );
             this.logger.debug(
               `Translation for client ${clientId}: ${translatedText}`,
@@ -264,7 +292,7 @@ export class TranslationGateway
 
     await session.start({
       transcription_config: {
-        language: 'en',
+        language: sourceLanguage,
         enable_partials: true,
       },
       audio_format: {
@@ -294,8 +322,8 @@ export class TranslationGateway
 
   private async translateText(
     text: string,
-    sourceLang: string = 'en',
-    targetLang: string = 'ua',
+    sourceLang: string,
+    targetLang: string,
   ): Promise<string> {
     try {
       const response = await this.openai.chat.completions.create({
@@ -303,7 +331,7 @@ export class TranslationGateway
         messages: [
           {
             role: 'system',
-            content: `You are a professional translator. Just translate text from ${sourceLang} to ${targetLang}, keeping the context.`,
+            content: `You are a professional translator. Just translate text from ${sourceLang} to ${targetLang}, keeping the context. Do not add explanations, comments, or extra text.`,
           },
           {
             role: 'user',
@@ -317,5 +345,23 @@ export class TranslationGateway
       this.logger.error(`Error communicating with OpenAI API: ${error}`);
       return '';
     }
+  }
+
+  // Method for extracting values from headers
+  private extractHeaderValue(client: Socket, headerKey: string): string {
+    const header = client.handshake.headers[headerKey];
+    if (!header) {
+      throw new Error(`${headerKey} not specified.`);
+    }
+    const headerValue = Array.isArray(header) ? header[0] : header;
+    return headerValue;
+  }
+
+  private isValidTranslationLanguage(
+    language: string,
+  ): language is TranslationLanguages {
+    return Object.values(TranslationLanguages).includes(
+      language as TranslationLanguages,
+    );
   }
 }
