@@ -3,7 +3,7 @@ import { IsNotEmpty, IsNumber, Min } from 'class-validator';
 
 export class RefundBalanceAmountDto {
   @ApiProperty({
-    description: 'Amount of raw USDC to refund',
+    description: 'Amount of raw tokens to refund',
     type: Number,
   })
   @IsNumber()

@@ -1,26 +1,23 @@
 {
-    "errors": {
-      "insufficientBalance": "Insufficient balance",
-      "balanceIsFrozen":"Balance is frozen",
-      "noBalanceToRefund": "No balance to refund",
-      "invalidSubscriptionType": "Invalid subscription type",
-      "no_free_hours": "Free hours are not available"
-    },
-    "messages": {
-      "timedBalanceRefundFailed": "Timed balance refunding failed",
-      "subscriptionBalanceRefundFailed": "Subscription refunding failed",
-      "start_translationFailed": "Failed to start translation with the selected payment method",
-      "stop_translationFailed": "Failed to end translation with the selected payment method",
-      "startPayPerUsageFailed": "Failed to start pay per usage",
-      "stopPayPerUsageFailed": "Failed to end pay per usage",
-      "startFreeHoursFailed": "Failed to start free hours usage",
-      "stopFreeHoursFailed": "Failed to end free hours usage",
-      "startPayPerHoursFailed": "Failed to start pay per hours usage",
-      "stopPayPerHoursFailed": "Failed to end pay per hours usage",
-      "startSubscriptionFailed": "Failed to start subscription",
-      "errorDuringPayPerUsage": "An error occurred while using pay per usage",
-      "errorDuringPayPerHours": "An error occurred while using pay per hours",
-      "errorDuringFreeHours": "An error occurred while using free hours"
-    }
+  "errors": {
+    "insufficientBalance": "Insufficient balance",
+    "balanceIsFrozen": "Balance is frozen",
+    "noBalanceToRefund": "No balance to refund",
+    "invalidSubscriptionType": "Invalid subscription type",
+    "no_free_hours": "Free hours are not available"
+  },
+  "messages": {
+    "BalanceRefundFailed": "Balance refunding failed",
+    "start_translationFailed": "Failed to start translation with the selected payment method",
+    "stop_translationFailed": "Failed to end translation with the selected payment method",
+    "startPayPerUsageFailed": "Failed to start pay per usage",
+    "stopPayPerUsageFailed": "Failed to end pay per usage",
+    "startFreeHoursFailed": "Failed to start free hours usage",
+    "stopFreeHoursFailed": "Failed to end free hours usage",
+    "startPayPerHoursFailed": "Failed to start pay per hours usage",
+    "stopPayPerHoursFailed": "Failed to end pay per hours usage",
+    "errorDuringPayPerUsage": "An error occurred while using pay per usage",
+    "errorDuringPayPerHours": "An error occurred while using pay per hours",
+    "errorDuringFreeHours": "An error occurred while using free hours"
   }
-  
+}

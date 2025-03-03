@@ -16,5 +16,5 @@ export class GetFreeHoursInfoResponseDto {
   })
   @IsNotEmpty()
   @IsDate()
-  freeHoursStartDate: Date;
+  freeHoursStartDate: Date | null;
 }

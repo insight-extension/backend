@@ -1,0 +1,7 @@
+{
+  "decorators": {
+    "isSolPubkey": {
+      "defaultMessage": "must be a valid Solana address on the curve"
+    }
+  }
+}

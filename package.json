@@ -37,6 +37,7 @@
     "rxjs": "^7.8.1",
     "sbd": "^1.0.19",
     "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "speechmatics": "^4.0.1",
     "tweetnacl": "^1.0.3",
     "ws": "^8.18.0"
@@ -46,11 +47,13 @@
     "@nestjs/schematics": "^10.2.3",
     "@nestjs/testing": "^10.4.13",
     "@prisma/client": "^6.1.0",
+    "@solana-developers/helpers": "2.5.6",
     "@types/express": "^4.17.21",
     "@types/jest": "^29.5.14",
     "@types/node": "22.7.4",
     "@types/passport-jwt": "^4.0.1",
     "@types/socket.io": "^3.0.2",
+    "@types/socket.io-client": "^3.0.0",
     "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
     "@typescript-eslint/parser": "^8.17.0",
@@ -100,5 +103,18 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:watch": "jest --watch"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "bigint-buffer",
+      "bufferutil",
+      "esbuild",
+      "nestjs-pino",
+      "prisma",
+      "utf-8-validate"
+    ]
   }
 }

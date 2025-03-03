@@ -1,63 +1,22 @@
-import { Module } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD, ModuleRef } from '@nestjs/core';
 import { TranslationModule } from './translation/translation.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AccountModule } from 'src/account/account.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { PaymentModule } from './payment/payment.module';
-import { AcceptLanguageResolver, I18nModule } from 'nestjs-i18n';
 import { FaucetModule } from './faucet/faucet.module';
-import * as path from 'path';
-import { LoggerModule } from 'nestjs-pino';
+import { DepositProgramModule } from './deposit-program/deposit-program.module';
+import { AdminTokenAuthMiddleware } from './utils/middlewares/admin-token-auth.middleware';
+import { ThrottlerConfig } from './utils/configs/throttler.config';
+import { I18nConfig } from './utils/configs/i18n.config';
+import { LoggerConfig } from './utils/configs/logger.config';
+import { FaucetRoutes } from './faucet/constants/faucet-routes.enum';
+import { DepositProgramRoutes } from './deposit-program/constants/deposit-program-routes.enum';
 
 @Module({
   imports: [
-    // Limits each client to 10 requests per 1 second (ttl). excess requests will be throttled with a 429 error.
-    ThrottlerModule.forRoot([
-      {
-        ttl: 1,
-        limit: 10,
-      },
-    ]),
-    // i18n module for translations
-    I18nModule.forRoot({
-      fallbackLanguage: 'en', // Default language
-      loaderOptions: {
-        path: path.join(__dirname, '/i18n/'),
-        watch: true,
-      },
-      resolvers: [
-        AcceptLanguageResolver, // Accept-Language header resolver
-      ],
-    }),
-    LoggerModule.forRoot({
-      pinoHttp: {
-        name: 'InsightBackend',
-        level: 'trace',
-        transport: {
-          targets: [
-            {
-              level: 'trace',
-              target: 'pino-pretty',
-            },
-            {
-              level: process.env.NODE_ENV !== 'production' ? 'trace' : 'info',
-              target: 'pino-loki',
-              options: {
-                batching: true,
-                interval: 5,
-                host: process.env.LOKI_URL,
-                labels: {
-                  app: process.env.LOKI_LABELS,
-                  namespace: process.env.NODE_ENV || 'development',
-                },
-              },
-            },
-          ],
-        },
-      },
-    }),
     // Setup modules
     PrismaModule,
     AccountModule,
@@ -65,6 +24,11 @@ import { LoggerModule } from 'nestjs-pino';
     TranslationModule,
     PaymentModule,
     FaucetModule,
+    DepositProgramModule,
+    // Modules with configuration
+    ThrottlerConfig,
+    I18nConfig,
+    LoggerConfig,
   ],
   providers: [
     TranslationModule,
@@ -74,4 +38,22 @@ import { LoggerModule } from 'nestjs-pino';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Make ModuleRef globally available to allow DI
+  // without constructor (e.g. decorators)
+  public static moduleRef: ModuleRef;
+  constructor(private readonly moduleRef: ModuleRef) {
+    AppModule.moduleRef = moduleRef;
+  }
+
+  // Middlewares configuration
+  configure(consumer: MiddlewareConsumer) {
+    // Apply API token auth middleware to the admin-only routes
+    consumer
+      .apply(AdminTokenAuthMiddleware)
+      .forRoutes(
+        `${FaucetRoutes.ROOT}/${FaucetRoutes.CONFIGURE}`,
+        `${DepositProgramRoutes.ROOT}/${DepositProgramRoutes.UNFREEZE_BALANCE}`,
+      );
+  }
+}

@@ -1,0 +1,3 @@
+type ValidateSignature = {
+  publicKey: string;
+};

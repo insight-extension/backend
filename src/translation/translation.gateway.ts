@@ -13,10 +13,11 @@ import { OpenAI } from 'openai';
 import { Socket, Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import 'dotenv/config';
-import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { PaymentService } from 'src/payment/payment.service';
 import { ExtraHeaders } from './constants/extra-headers.enum';
 import { TranslationLanguages } from './constants/translation-languages.enum';
+import { WsEvents } from './constants/ws-events.enum';
+import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -30,7 +31,7 @@ export class TranslationGateway
   ) {}
 
   @WebSocketServer()
-  private server: Server;
+  private readonly server: Server;
 
   // Active client sessions: clientId -> { session, apiKey }
   private speechmaticsSessions: Map<
@@ -50,7 +51,7 @@ export class TranslationGateway
   private readonly OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
   // OpenAI client
-  private openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
+  private readonly openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
 
   afterInit() {
     this.logger.log('Translation gateway initialized');
@@ -68,7 +69,7 @@ export class TranslationGateway
       // Start translation with required payment method
       await this.paymentService.startPaymentWithRequiredMethod(client);
 
-      client.on('audioData', async (data: unknown) => {
+      client.on(WsEvents.AUDIO_DATA, async (data: unknown) => {
         if (data instanceof Uint8Array) {
           this.logger.debug('Audio data received');
           await this.handleAudioData(Buffer.from(data), client);
@@ -109,7 +110,7 @@ export class TranslationGateway
     }
   }
 
-  @SubscribeMessage('audioData')
+  @SubscribeMessage(WsEvents.AUDIO_DATA)
   async handleAudioData(
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
@@ -128,7 +129,7 @@ export class TranslationGateway
 
         if (!apiKey) {
           this.logger.error(`No available API keys for client ${client.id}`);
-          client.emit('error', {
+          client.emit(WsEvents.ERROR, {
             message: 'No available slots for translations. Try again later.',
           });
           return;
@@ -158,7 +159,7 @@ export class TranslationGateway
         this.logger.error(
           `Error creating session for client ${client.id}, error ${error}`,
         );
-        client.emit('error', {
+        client.emit(WsEvents.ERROR, {
           message: 'Failed to start translation session.',
         });
         return;
@@ -175,7 +176,8 @@ export class TranslationGateway
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
       );
-      client.emit('error', { message: 'Failed to process audio data.' });
+      // TODO: Add i18n. Remove unnecessary constants from i18n file
+      client.emit(WsEvents.ERROR, { message: 'Failed to process audio data.' });
     }
   }
 
@@ -195,6 +197,7 @@ export class TranslationGateway
     clientId: string,
   ): Promise<RealtimeSession> {
     this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
+    // TODO: Check for user instance usage instead of server
     const session = new RealtimeSession(apiKey);
 
     // Get the client socket's instance
