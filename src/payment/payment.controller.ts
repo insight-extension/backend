@@ -11,7 +11,6 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import {
   ApiBearerAuth,
   ApiBody,
-  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -19,7 +18,6 @@ import {
 import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
 import { RefundBalanceAmountDto as RefundBalanceDto } from './dto/refund-balance-amount.dto';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
-import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 import { PaymentRoutes } from './constants/payment-routes.enum';
 
 @UseGuards(JwtAuthGuard)

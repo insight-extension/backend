@@ -393,6 +393,8 @@ describe('Translation Module E2E', () => {
   //   testTimeout,
   // );
 
+  // TODO: add test for language selection
+
   afterEach(async () => {
     if (clientSocket && clientSocket.connected) {
       clientSocket.close();

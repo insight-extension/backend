@@ -20,6 +20,7 @@ import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 import { WsEvents } from 'src/translation/constants/ws-events.enum';
 import { JwtPayload } from 'src/auth/types/jwt-payload.type';
+import { WsHeaders } from 'src/translation/constants/ws-headers.enum';
 
 @Injectable()
 export class PaymentService {
@@ -103,6 +104,7 @@ export class PaymentService {
   async startPaymentWithRequiredMethod(client: Socket): Promise<void> {
     try {
       // Get required payment method from client handshake's header
+      // TODO: rewrite with strict check
       const subscriptionType = client.request.headers.subscription as string;
 
       // Start payment method based on subscription type
@@ -137,6 +139,7 @@ export class PaymentService {
 
   async stopPaymentWithRequiredMethod(client: Socket): Promise<void> {
     try {
+      // TODO: rewrite with strict check
       // Get payment method from client handshake's header
       const subscriptionType = client.request.headers.subscription;
 
@@ -168,6 +171,13 @@ export class PaymentService {
       this.emitErrorToClient(client, message, error);
       client.disconnect();
     }
+  }
+
+  i18nWs(client: Socket, textToTranslate: string): string {
+    // Get client's language from handshake's headers
+    // TODO: rewrite with strict check
+    const lang = client.handshake.headers[WsHeaders.ACCEPT_LANGUAGE] || 'en';
+    return this.i18n.translate(textToTranslate, { lang });
   }
 
   private async startPayingPerMinutes(client: Socket): Promise<void> {
@@ -815,11 +825,5 @@ export class PaymentService {
       statusCode,
     );
     client.emit(WsEvents.ERROR, errorToEmit.getResponse());
-  }
-
-  private i18nWs(client: Socket, textToTranslate: string): string {
-    // Get client's language from handshake's headers
-    const lang = client.handshake.headers['accept-language'] || 'en';
-    return this.i18n.translate(textToTranslate, { lang });
   }
 }

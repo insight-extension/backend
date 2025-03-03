@@ -14,10 +14,11 @@ import { Socket, Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import 'dotenv/config';
 import { PaymentService } from 'src/payment/payment.service';
-import { ExtraHeaders } from './constants/extra-headers.enum';
+import { WsHeaders } from './constants/ws-headers.enum';
 import { TranslationLanguages } from './constants/translation-languages.enum';
 import { WsEvents } from './constants/ws-events.enum';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
+import { I18nService } from 'nestjs-i18n';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -28,22 +29,23 @@ export class TranslationGateway
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
+    private readonly i18n: I18nService,
   ) {}
 
   @WebSocketServer()
-  private readonly server: Server;
+  private server: Server;
 
   // Active client sessions: clientId -> { session, apiKey }
-  private speechmaticsSessions: Map<
+  private speechmaticSessions: Map<
     string,
-    { session: RealtimeSession; apiKey: string }
+    { speechmaticSession: RealtimeSession; speechmaticApiKey: string }
   > = new Map();
 
   // To track sessions being created
-  private creatingSessions: Set<string> = new Set();
+  private creatingSessionsLock: Set<string> = new Set();
 
   // API key usage status: apiKey -> busy flag (true/false)
-  private apiKeyUsage: Map<string, boolean> = new Map();
+  private speechmaticsApiKeyUsage: Map<string, boolean> = new Map();
 
   // List of API keys
   private readonly SPEECHMATICS_API_KEYS =
@@ -58,13 +60,14 @@ export class TranslationGateway
 
     // Initialize API keys and their status
     this.SPEECHMATICS_API_KEYS.forEach((key) =>
-      this.apiKeyUsage.set(key, false),
+      this.speechmaticsApiKeyUsage.set(key, false),
     );
   }
 
   async handleConnection(client: Socket) {
     // Check if user is authorized
     const isAuthorized = await this.wsJwtGuard.canActivate(client);
+    // TODO: try to refactor this
     if (isAuthorized) {
       // Start translation with required payment method
       await this.paymentService.startPaymentWithRequiredMethod(client);
@@ -82,20 +85,21 @@ export class TranslationGateway
 
   async handleDisconnect(client: Socket) {
     this.logger.debug(`Client disconnected: ${client.id}`);
-    await this.cleanupSession(client.id);
+    await this.cleanupSpeechmaticsSession(client.id);
     await this.paymentService.stopPaymentWithRequiredMethod(client);
   }
 
-  private async cleanupSession(clientId: string) {
-    if (this.speechmaticsSessions.has(clientId)) {
-      const { session, apiKey } = this.speechmaticsSessions.get(clientId);
+  private async cleanupSpeechmaticsSession(clientId: string) {
+    if (this.speechmaticSessions.has(clientId)) {
+      const { speechmaticSession, speechmaticApiKey } =
+        this.speechmaticSessions.get(clientId);
 
       // Remove the session from the map
-      this.speechmaticsSessions.delete(clientId);
+      this.speechmaticSessions.delete(clientId);
 
       // Stop the Speechmatics session
       try {
-        await session.stop();
+        await speechmaticSession.stop();
         this.logger.debug(
           `Speechmatics session stopped for client: ${clientId}`,
         );
@@ -104,8 +108,8 @@ export class TranslationGateway
       }
 
       // Release the API key
-      if (apiKey) {
-        this.apiKeyUsage.set(apiKey, false);
+      if (speechmaticApiKey) {
+        this.speechmaticsApiKeyUsage.set(speechmaticApiKey, false);
       }
     }
   }
@@ -116,31 +120,36 @@ export class TranslationGateway
     @ConnectedSocket() client: Socket,
   ) {
     // If a session is already being created, wait for completion
-    if (this.creatingSessions.has(client.id)) {
+    if (this.creatingSessionsLock.has(client.id)) {
       return;
     }
 
     // Check if a session already exists
-    if (!this.speechmaticsSessions.has(client.id)) {
-      this.creatingSessions.add(client.id); // Mark that session creation has started
+    if (!this.speechmaticSessions.has(client.id)) {
+      this.creatingSessionsLock.add(client.id); // Mark that session creation has started
       try {
         this.logger.debug(`No session found for client ${client.id}`);
-        const apiKey = this.getAvailableApiKey();
+        const speechmaticsApiKey = this.getAvailableApiKey();
 
-        if (!apiKey) {
+        if (!speechmaticsApiKey) {
           this.logger.error(`No available API keys for client ${client.id}`);
           client.emit(WsEvents.ERROR, {
-            message: 'No available slots for translations. Try again later.',
+            message: this.paymentService.i18nWs(
+              client,
+              'translation.noAvailableSlots',
+            ),
           });
           return;
         }
 
-        // this.apiKeyUsage.set(apiKey, false);
         let session: RealtimeSession;
         try {
-          session = await this.createSpeechmaticsSession(apiKey, client.id);
+          session = await this.createSpeechmaticsSession(
+            speechmaticsApiKey,
+            client,
+          );
         } catch (error) {
-          this.apiKeyUsage.set(apiKey, false);
+          this.speechmaticsApiKeyUsage.set(speechmaticsApiKey, false);
           throw new Error(error.message);
         }
 
@@ -151,41 +160,53 @@ export class TranslationGateway
           } catch (error) {
             this.logger.error(`Error stopping session for client ${client.id}`);
           }
-          this.apiKeyUsage.set(apiKey, false);
+          this.speechmaticsApiKeyUsage.set(speechmaticsApiKey, false);
           return;
         }
-        this.speechmaticsSessions.set(client.id, { session, apiKey });
+        this.speechmaticSessions.set(client.id, {
+          speechmaticSession: session,
+          speechmaticApiKey: speechmaticsApiKey,
+        });
       } catch (error) {
         this.logger.error(
           `Error creating session for client ${client.id}, error ${error}`,
         );
         client.emit(WsEvents.ERROR, {
-          message: 'Failed to start translation session.',
+          message: this.paymentService.i18nWs(
+            client,
+            'translation.failedToStartTranslation',
+          ),
         });
         return;
       } finally {
-        this.creatingSessions.delete(client.id); // Remove the lock
+        this.creatingSessionsLock.delete(client.id); // Remove the lock
       }
     }
 
     // If the session already exists, send audio data
-    const { session } = this.speechmaticsSessions.get(client.id);
+    const { speechmaticSession: session } = this.speechmaticSessions.get(
+      client.id,
+    );
     try {
       session.sendAudio(audioData);
     } catch (error) {
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
       );
-      // TODO: Add i18n
-      client.emit(WsEvents.ERROR, { message: 'Failed to process audio data.' });
+      client.emit(WsEvents.ERROR, {
+        message: this.paymentService.i18nWs(
+          client,
+          'translation.processAudioFailed',
+        ),
+      });
     }
   }
 
   private getAvailableApiKey(): string | null {
-    for (const [key, inUse] of this.apiKeyUsage.entries()) {
+    for (const [key, inUse] of this.speechmaticsApiKeyUsage.entries()) {
       if (!inUse) {
         // Mark the key as busy
-        this.apiKeyUsage.set(key, true);
+        this.speechmaticsApiKeyUsage.set(key, true);
         return key;
       }
     }
@@ -193,24 +214,20 @@ export class TranslationGateway
   }
 
   private async createSpeechmaticsSession(
-    apiKey: string,
-    clientId: string,
+    speechmaticsApiKey: string,
+    client: Socket,
   ): Promise<RealtimeSession> {
-    this.logger.debug(`Creating Speechmatics session for client ${clientId}`);
-    // TODO: Check for user instance usage instead of server
-    const session = new RealtimeSession(apiKey);
-
-    // Get the client socket's instance
-    const client = this.server.sockets.sockets.get(clientId);
+    this.logger.debug(`Creating Speechmatics session for client ${client.id}`);
+    const session = new RealtimeSession(speechmaticsApiKey);
 
     // Get languages from headers
     const sourceLanguage = this.extractHeaderValue(
       client,
-      ExtraHeaders.SOURCE_LANGUAGE,
+      WsHeaders.SOURCE_LANGUAGE,
     );
     const targetLanguage = this.extractHeaderValue(
       client,
-      ExtraHeaders.TARGET_LANGUAGE,
+      WsHeaders.TARGET_LANGUAGE,
     );
     this.logger.debug(
       `Source language: ${sourceLanguage}, Target language: ${targetLanguage}`,
@@ -221,10 +238,14 @@ export class TranslationGateway
       !this.isValidTranslationLanguage(sourceLanguage) ||
       !this.isValidTranslationLanguage(targetLanguage)
     ) {
-      throw new Error('Invalid source or target language.');
+      throw new Error(
+        this.paymentService.i18nWs(client, 'translation.invalidLanguage'),
+      );
     }
     if (sourceLanguage === targetLanguage) {
-      throw new Error('Source and target languages are the same.');
+      throw new Error(
+        this.paymentService.i18nWs(client, 'translation.sameLanguages'),
+      );
     }
 
     // Buffer for accumulating text received from the client
@@ -233,7 +254,7 @@ export class TranslationGateway
     session.addListener('AddTranscript', async (message) => {
       const transcript = message.metadata.transcript;
       this.logger.debug(
-        `Transcript received for client ${clientId}: ${transcript}`,
+        `Transcript received for client ${client.id}: ${transcript}`,
       );
 
       // Update the buffer, ensuring seamless merging of text
@@ -253,18 +274,16 @@ export class TranslationGateway
               targetLanguage,
             );
             this.logger.debug(
-              `Translation for client ${clientId}: ${translatedText}`,
+              `Translation for client ${client.id}: ${translatedText}`,
             );
 
             // Send both transcription and translation
-            this.server
-              .to(clientId)
-              .emit(
-                'message',
-                JSON.stringify({ type: 'transcript', transcript: sentence }),
-              );
-            this.server.to(clientId).emit(
-              'message',
+            client.emit(
+              WsEvents.MESSAGE,
+              JSON.stringify({ type: 'transcript', transcript: sentence }),
+            );
+            client.emit(
+              WsEvents.MESSAGE,
               JSON.stringify({
                 type: 'translation',
                 translation: translatedText,
@@ -272,11 +291,14 @@ export class TranslationGateway
             );
           } catch (error) {
             this.logger.error(`Error translating: ${sentence}`);
-            this.server.to(clientId).emit(
-              'message',
+            client.emit(
+              WsEvents.MESSAGE,
               JSON.stringify({
                 type: 'error',
-                message: 'Translation failed.',
+                message: this.paymentService.i18nWs(
+                  client,
+                  'translation.translationFailed',
+                ),
               }),
             );
           }
@@ -286,11 +308,9 @@ export class TranslationGateway
 
     session.addListener('Error', (error) => {
       this.logger.error(
-        `Speechmatics error for client ${clientId}, error: ${error}`,
+        `Speechmatics error for client ${client.id}, error: ${error}`,
       );
-      this.server
-        .to(clientId)
-        .emit('message', { type: 'error', message: error.message });
+      client.emit(WsEvents.MESSAGE, { type: 'error', message: error.message });
     });
 
     await session.start({
@@ -325,8 +345,8 @@ export class TranslationGateway
 
   private async translateText(
     text: string,
-    sourceLang: string,
-    targetLang: string,
+    sourceLang: TranslationLanguages,
+    targetLang: TranslationLanguages,
   ): Promise<string> {
     try {
       const response = await this.openai.chat.completions.create({
@@ -342,7 +362,6 @@ export class TranslationGateway
           },
         ],
       });
-
       return response.choices[0].message.content.trim();
     } catch (error) {
       this.logger.error(`Error communicating with OpenAI API: ${error}`);

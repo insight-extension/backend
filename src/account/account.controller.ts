@@ -17,7 +17,6 @@ import {
 } from '@nestjs/swagger';
 import { GetFreeHoursInfoResponseDto } from './dto/get-free-hours-info-response.dto';
 import { JwtPublicKey } from 'src/utils/decorators/jwt-publickey.decorator';
-import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 import { AccountRoutes } from './constants/account-routes.enum';
 
 @ApiTags(AccountRoutes.ROOT)

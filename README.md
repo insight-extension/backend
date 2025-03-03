@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- [Node.js (3.8.0+)](https://nodejs.org/)
+- [Node.js (20.10.0+)](https://nodejs.org/)
 - [Docker](https://docs.docker.com/engine/)
 
 ## Configuring the Project for Development

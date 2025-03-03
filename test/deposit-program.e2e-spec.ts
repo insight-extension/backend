@@ -80,7 +80,7 @@ describe('DepositProgram Module (e2e)', () => {
 
     expect(response.body).toHaveProperty('transaction');
     expect(response.body.transaction).toBe(
-      mockedDepositService.mockedTransaction,
+      mockedDepositService.mockedSignature,
     );
     expect(mockedDepositService.isBalanceFrozen).toBe(false);
   });

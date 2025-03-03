@@ -29,7 +29,7 @@ export const JwtPublicKey = createParamDecorator(
       const token = authHeader.split(' ')[1];
 
       const jwtService = new JwtService();
-      const payload: any = jwtService.decode(token);
+      const payload: JwtPayload = jwtService.decode(token);
       return payload.publicKey;
     } catch (error) {
       throw new UnauthorizedException(

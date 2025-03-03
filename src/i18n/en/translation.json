@@ -1,0 +1,8 @@
+{
+  "noAvailableSlots": "No available slots for translations. Try again later.",
+  "failedToStartTranslation": "Failed to start translation session.",
+  "processAudioFailed": "Failed to process audio data.",
+  "invalidLanguage": "Invalid source or/and target language.",
+  "sameLanguages": "Source and target languages are the same.",
+  "translationFailed": "Translation failed."
+}

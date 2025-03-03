@@ -9,6 +9,7 @@ import { Keypair } from '@solana/web3.js';
 import { getAccessToken } from './utils/auth.helper';
 import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
+import { FaucetRoutes } from 'src/faucet/constants/faucet-routes.enum';
 
 describe('Faucet Module', () => {
   let app: INestApplication;
@@ -45,8 +46,8 @@ describe('Faucet Module', () => {
     const ip = '192.168.1.1';
 
     const response = await request(app.getHttpServer())
-      .post('/faucet/claim')
-      .set('Authorization', `Bearer ${accessToken}`)
+      .post(`/${FaucetRoutes.ROOT}/${FaucetRoutes.CLAIM}`)
+      .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
       .set('X-Forwarded-For', ip)
       .expect(HttpStatus.CREATED);
 
@@ -59,15 +60,15 @@ describe('Faucet Module', () => {
     const ip = '192.168.1.1';
     // Mocking the IP cache behavior to simulate a claim made already
     await request(app.getHttpServer())
-      .post('/faucet/claim')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .set('X-Forwarded-For', ip)
+      .post(`/${FaucetRoutes.ROOT}/${FaucetRoutes.CLAIM}`)
+      .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
+      .set(HttpHeaders.FORWARDED_FOR, ip)
       .expect(HttpStatus.CREATED);
 
     await request(app.getHttpServer())
-      .post('/faucet/claim')
+      .post(`/${FaucetRoutes.ROOT}/${FaucetRoutes.CLAIM}`)
       .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
-      .set('X-Forwarded-For', ip)
+      .set(HttpHeaders.FORWARDED_FOR, ip)
       .expect(HttpStatus.FORBIDDEN)
       .expect({
         message:

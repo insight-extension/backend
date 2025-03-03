@@ -9,7 +9,7 @@ import { sleep } from './payment.helper';
 @Injectable()
 export class MockDepositProgramService {
   private readonly timeToSleep = 1500;
-  public readonly mockedTransaction = 'tx123';
+  public readonly mockedSignature = 'tx123';
 
   // Available to change during the tests
   public isBalanceFrozen = false;
@@ -77,21 +77,21 @@ export class MockDepositProgramService {
     async (userPublicKey: string, rawTotalPrice: number): Promise<string> => {
       sleep(this.timeToSleep);
       this.userBalance = new BN(0);
-      return this.mockedTransaction;
+      return this.mockedSignature;
     },
   );
 
   freezeBalance = jest.fn(async (userPublicKey: string): Promise<string> => {
     sleep(this.timeToSleep);
     this.isBalanceFrozen = true;
-    return this.mockedTransaction;
+    return this.mockedSignature;
   });
 
   unfreezeBalance = jest.fn(
     async (userPublicKey: string): Promise<UnfreezeBalanceResponseDto> => {
       sleep(this.timeToSleep);
       this.isBalanceFrozen = false;
-      return { transaction: this.mockedTransaction };
+      return { transaction: this.mockedSignature };
     },
   );
 

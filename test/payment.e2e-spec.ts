@@ -3,13 +3,14 @@ import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PaymentService } from '../src/payment/payment.service';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Keypair } from '@solana/web3.js';
 import { getAccessToken } from './utils/auth.helper';
 import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
-import { GetUserInfo } from 'src/deposit-program/types/get-user-info.type';
 import { MockDepositProgramService } from './utils/deposit-program.mock';
+import { PaymentRoutes } from 'src/payment/constants/payment-routes.enum';
+import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 
 describe('PaymentModule (e2e)', () => {
   let app: INestApplication;
@@ -18,7 +19,6 @@ describe('PaymentModule (e2e)', () => {
   let accessToken: string;
   let authService: AuthService;
   let accountService: AccountService;
-  const mockSignature = 'tx123';
   const userBalance = 100;
 
   let mockedDepositService: MockDepositProgramService;
@@ -59,13 +59,13 @@ describe('PaymentModule (e2e)', () => {
     mockedDepositService.setUserBalance(userBalance);
 
     const response = await request(app.getHttpServer())
-      .post('/payment/refund-balance')
-      .set('Authorization', `Bearer ${accessToken}`)
+      .post(`/${PaymentRoutes.ROOT}/${PaymentRoutes.REFUND_BALANCE}`)
+      .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
       .send({ amount: userBalance });
 
     expect(response.status).toBe(HttpStatus.CREATED);
     expect(response.body).toEqual({
-      signature: mockedDepositService.mockedTransaction,
+      signature: mockedDepositService.mockedSignature,
     });
     expect(mockedDepositService.userBalance.toNumber()).toBe(0);
   });
@@ -74,8 +74,8 @@ describe('PaymentModule (e2e)', () => {
     mockedDepositService.setUserBalance(0);
 
     const response = await request(app.getHttpServer())
-      .post('/payment/refund-balance')
-      .set('Authorization', `Bearer ${accessToken}`)
+      .post(`/${PaymentRoutes.ROOT}/${PaymentRoutes.REFUND_BALANCE}`)
+      .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
       .send({ amount: 1000 });
 
     expect(response.status).toBe(HttpStatus.BAD_REQUEST);
@@ -89,8 +89,8 @@ describe('PaymentModule (e2e)', () => {
     mockedDepositService.isBalanceFrozen = true;
 
     const response = await request(app.getHttpServer())
-      .post('/payment/refund-balance')
-      .set('Authorization', `Bearer ${accessToken}`)
+      .post(`/${PaymentRoutes.ROOT}/${PaymentRoutes.REFUND_BALANCE}`)
+      .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
       .send({ amount: userBalance });
 
     expect(response.status).toBe(HttpStatus.BAD_REQUEST);

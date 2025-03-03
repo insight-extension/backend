@@ -16,7 +16,6 @@ describe('Auth Module (e2e)', () => {
   let accountService: AccountService;
   let user: Keypair;
   let authService: AuthService;
-  let refreshToken: string;
 
   // Setup before all tests
   beforeEach(async () => {
@@ -29,7 +28,6 @@ describe('Auth Module (e2e)', () => {
 
     // User mock environment
     user = Keypair.generate();
-    refreshToken = await getRefreshToken(authService, user);
 
     // Initialize the NestJS application
     app = moduleFixture.createNestApplication({ logger: false });
@@ -82,19 +80,14 @@ describe('Auth Module (e2e)', () => {
       signature: await getSignature(authService, user),
     };
 
-    const mockResponse: VerifyResponseDto = {
-      accessToken: 'mockAccessToken',
-      refreshToken: 'mockRefreshToken',
-    };
-
-    jest.spyOn(authService, 'verify').mockResolvedValue(mockResponse);
-
     const response = await request(app.getHttpServer())
       .post(`/${AuthRoutes.ROOT}/${AuthRoutes.VERIFY}`)
       .send(dto)
       .expect(HttpStatus.CREATED);
-
-    expect(response.body).toEqual(mockResponse);
+      
+    expect(response.body).toHaveProperty('accessToken');
+    expect(response.body).toHaveProperty('refreshToken');
+    await accountService.deleteAccount(user.publicKey.toString());
   });
 
   it('auth/verify (POST) - success (new account created)', async () => {
@@ -122,8 +115,12 @@ describe('Auth Module (e2e)', () => {
       .send(dto)
       .expect(HttpStatus.CREATED);
 
+    expect(
+      accountService.findOneByPublicKey(user.publicKey.toString()),
+    ).resolves.toBeTruthy();
     expect(response.body.accessToken).toBe('newMockAccessToken');
     expect(response.body.refreshToken).toBe('newMockRefreshToken');
+    //await accountService.deleteAccount(user.publicKey.toString());
   });
 
   // --- TEST REFRESH TOKEN ---
@@ -135,6 +132,8 @@ describe('Auth Module (e2e)', () => {
   });
 
   it('auth/refresh-token (POST) - success', async () => {
+    const refreshToken = await getRefreshToken(authService, user);
+
     const response = await request(app.getHttpServer())
       .post(`/${AuthRoutes.ROOT}/${AuthRoutes.REFRESH_TOKEN}`)
       .send({ refreshToken })
@@ -144,11 +143,12 @@ describe('Auth Module (e2e)', () => {
     expect(response.body).toHaveProperty('refreshToken');
     expect(typeof response.body.accessToken).toBe('string');
     expect(typeof response.body.refreshToken).toBe('string');
+
+    await accountService.deleteAccount(user.publicKey.toString());
   });
 
   // Cleanup after all tests
   afterEach(async () => {
-    await accountService.deleteAccount(user.publicKey.toString());
     await app.close();
   });
 });

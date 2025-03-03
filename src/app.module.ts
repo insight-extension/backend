@@ -43,9 +43,9 @@ export class AppModule implements NestModule {
   // container instances without constructor (e.g. decorators)
   private static moduleRef: ModuleRef;
   constructor(private readonly moduleRef: ModuleRef) {
-    AppModule.moduleRef = moduleRef;
+    AppModule.moduleRef = this.moduleRef;
   }
-  
+
   public static getModuleRef(): ModuleRef {
     return this.moduleRef;
   }
