@@ -1,0 +1,38 @@
+name: e2e tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9.4.0
+
+      - name: Install dependencies
+        run: pnpm i
+
+      - name: Create .env file
+        run: |
+          echo "ADMIN_AUTH_TOKEN=${{ secrets.ADMIN_AUTH_TOKEN }}" >> .env
+          echo "API_PORT=${{ secrets.API_PORT }}" >> .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "MASTER_KEY=${{ secrets.MASTER_KEY }}" >> .env
+          echo "NODE_ENV=${{ secrets.NODE_ENV }}" >> .env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env
+          echo "RPC_URL=${{ secrets.RPC_URL }}" >> .env
+          echo "SPEECHMATICS_API_KEYS=${{ secrets.SPEECHMATICS_API_KEYS }}" >> .env
+          echo "TOKEN_ADDRESS=${{ secrets.TOKEN_ADDRESS }}" >> .env
+
+      - name: Run e2e tests
+        run: pnpm test:e2e
