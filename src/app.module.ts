@@ -14,6 +14,7 @@ import { I18nConfig } from './utils/configs/i18n.config';
 import { LoggerConfig } from './utils/configs/logger.config';
 import { FaucetRoutes } from './faucet/constants/faucet-routes.enum';
 import { DepositProgramRoutes } from './deposit-program/constants/deposit-program-routes.enum';
+import { CacheConfig } from './utils/configs/cache.config';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { DepositProgramRoutes } from './deposit-program/constants/deposit-progra
     ThrottlerConfig,
     I18nConfig,
     LoggerConfig,
+    CacheConfig,
   ],
   providers: [
     TranslationModule,

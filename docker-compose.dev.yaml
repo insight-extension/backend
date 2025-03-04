@@ -21,6 +21,29 @@ services:
     ports:
       - '8080:8080'
 
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: always
+    ports:
+      - '6379:6379'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    command:
+      [
+        'redis-server',
+        '--requirepass',
+        '${REDIS_PASSWORD}',
+        '--appendonly',
+        'yes',
+        '--appendfsync',
+        'everysec',
+        '--dir',
+        '/data',
+      ]
+    volumes:
+      - redis_data:/data
+
   loki:
     image: grafana/loki:latest
     ports:
@@ -55,3 +78,7 @@ services:
     image: grafana/grafana:latest
     ports:
       - '3000:3000'
+
+volumes:
+  redis_data:
+    driver: local

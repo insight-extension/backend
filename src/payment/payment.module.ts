@@ -9,9 +9,6 @@ import { DepositProgramService } from 'src/deposit-program/deposit-program.servi
 
 @Module({
   imports: [
-    CacheModule.register({
-      ttl: 12 * 60 * 60 * 1000, // 12 hrs in ms
-    }),
     ScheduleModule.forRoot(),
     JwtModule,
     AccountModule,

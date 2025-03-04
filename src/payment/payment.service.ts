@@ -202,7 +202,7 @@ export class PaymentService {
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
-      this.cacheManager.set(userPublicKey, usageStartTime);
+      await this.cacheManager.set(userPublicKey, usageStartTime);
       this.logger.debug(
         `Cache set for user [${userPublicKey}] with start time: [${usageStartTime}]`,
       );
@@ -371,7 +371,7 @@ export class PaymentService {
         client,
       );
 
-      this.cacheManager.set(userPublicKey, currentUsageStartTime);
+      await this.cacheManager.set(userPublicKey, currentUsageStartTime);
       this.logger.debug(
         `User [${userPublicKey}] set cache with start time: [${currentUsageStartTime}]`,
       );
@@ -486,7 +486,7 @@ export class PaymentService {
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
-      this.cacheManager.set(userPublicKey, usageStartTime);
+      await this.cacheManager.set(userPublicKey, usageStartTime);
       this.logger.debug(`Cache set for user [${userPublicKey}]`);
 
       // Determine the expiration time of the user's balance
@@ -703,7 +703,7 @@ export class PaymentService {
       );
 
       // Clear user's resources
-      this.cacheManager.del(userPublicKey);
+      await this.cacheManager.del(userPublicKey);
       this.logger.debug(`User's [${userPublicKey}] cache deleted`);
 
       // Emit error to client and disconnect him
@@ -736,7 +736,7 @@ export class PaymentService {
     const timeoutCallback = async () => {
       // Reset user's free hours to 0
       await this.accountService.setFreeHoursLeft(0, userPublicKey);
-      this.cacheManager.del(userPublicKey);
+      await this.cacheManager.del(userPublicKey);
 
       this.logger.debug(`User's [${userPublicKey}] cache deleted`);
       this.logger.debug(

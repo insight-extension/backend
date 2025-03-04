@@ -159,7 +159,8 @@ export class AuthService {
     const nonce = this.generateNonce();
 
     // Store nonce for comparing it later
-    await this.cacheManager.set(dto.publicKey, nonce);
+    const TTL = 30 * 60 * 1000; // 30 minutes
+    await this.cacheManager.set(dto.publicKey, nonce, TTL);
 
     return {
       publicKey: dto.publicKey,
