@@ -22,6 +22,7 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 import 'dotenv/config';
+import { FaucetCache } from './constants/faucet-cache.enum';
 
 @Injectable()
 export class FaucetService {
@@ -56,10 +57,12 @@ export class FaucetService {
   async claim(publicKey: string, ip: string): Promise<ClaimFaucetResponseDto> {
     try {
       // Check if the IP address has already claimed the faucet
-      const cachedRenewDate: Date = await this.cacheManager.get(ip);
+      const key = FaucetCache.PREFIX + ip;
+      const isoRenewDate: string = await this.cacheManager.get(key);
 
       // If the IP address has already claimed the faucet, throw an error
-      if (cachedRenewDate) {
+      if (isoRenewDate) {
+        const cachedRenewDate: Date = new Date(isoRenewDate);
         const availableInMs = cachedRenewDate.getTime() - Date.now();
         const availableInHours = Math.ceil(availableInMs / (60 * 60 * 1000)); // min * sec * ms
         this.logger.warn(
@@ -79,10 +82,10 @@ export class FaucetService {
       const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
       // Set the date then renew will be available
-      const renewDate = new Date(Date.now() + ONE_DAY_IN_MS);
+      const renewDate = new Date(Date.now() + ONE_DAY_IN_MS).toISOString();
 
       // Set the IP address to limit claiming from the faucet
-      await this.cacheManager.set(ip, renewDate, ONE_DAY_IN_MS);
+      await this.cacheManager.set(key, renewDate, ONE_DAY_IN_MS);
       this.logger.debug(
         `IP address has been set to cache for ip: [${ip}] public key: [${publicKey}]`,
       );
@@ -129,5 +132,10 @@ export class FaucetService {
     } catch (error) {
       throw new BadRequestException(`Transaction failed: ${error.message}`);
     }
+  }
+
+  private async deleteIpFromCache(ip: string): Promise<void> {
+    await this.cacheManager.del(FaucetCache.PREFIX + ip);
+    this.logger.debug(`IP address has been removed from cache: [${ip}]`);
   }
 }

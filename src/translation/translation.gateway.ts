@@ -20,6 +20,7 @@ import { WsEvents } from './constants/ws-events.enum';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
+import { TranslationCache } from './constants/translation-cache.enum';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -30,11 +31,13 @@ export class TranslationGateway
   constructor(
     private readonly wsJwtGuard: WsJwtGuard,
     private readonly paymentService: PaymentService,
+
+    // cacheManager<key: string(apiKey), value: string(expirationIsoDate)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   @WebSocketServer()
-  private readonly server: Server;
+  private server: Server;
 
   // Active client sessions: clientId -> { session, apiKey }
   private speechmaticsSessions: Map<
@@ -49,18 +52,26 @@ export class TranslationGateway
   private apiKeyUsage: Map<string, boolean> = new Map();
 
   // List of API keys
-  private readonly SPEECHMATICS_API_KEYS =
+  private ALL_SPEECHMATICS_API_KEYS: string[] =
     process.env.SPEECHMATICS_API_KEYS?.split(',') || [];
+
+  private AVAILABLE_SPEECHMATICS_KEYS: string[] = [];
+
   private readonly OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
   // OpenAI client
   private readonly openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
 
-  afterInit() {
+  private readonly ONE_MONTH_IN_MS = 30 * 24 * 60 * 60 * 1000;
+
+  async afterInit() {
     this.logger.log('Translation gateway initialized');
 
+    // Freeze unavailable keys after gateway initialization
+    await this.setupAvailableKeysAfterInit();
+
     // Initialize API keys and their status
-    this.SPEECHMATICS_API_KEYS.forEach((key) =>
+    this.AVAILABLE_SPEECHMATICS_KEYS.forEach((key) =>
       this.apiKeyUsage.set(key, false),
     );
   }
@@ -89,30 +100,6 @@ export class TranslationGateway
     await this.paymentService.stopPaymentWithRequiredMethod(client);
   }
 
-  private async cleanupSession(clientId: string) {
-    if (this.speechmaticsSessions.has(clientId)) {
-      const { session, apiKey } = this.speechmaticsSessions.get(clientId);
-
-      // Remove the session from the map
-      this.speechmaticsSessions.delete(clientId);
-
-      // Stop the Speechmatics session
-      try {
-        await session.stop();
-        this.logger.debug(
-          `Speechmatics session stopped for client: ${clientId}`,
-        );
-      } catch (error) {
-        this.logger.error(`Error stopping session for client ${clientId}`);
-      }
-
-      // Release the API key
-      if (apiKey) {
-        this.apiKeyUsage.set(apiKey, false);
-      }
-    }
-  }
-
   @SubscribeMessage(WsEvents.AUDIO_DATA)
   async handleAudioData(
     @MessageBody() audioData: Buffer,
@@ -138,7 +125,6 @@ export class TranslationGateway
           return;
         }
 
-        // this.apiKeyUsage.set(apiKey, false);
         let session: RealtimeSession;
         try {
           session = await this.createSpeechmaticsSession(apiKey, client.id);
@@ -181,6 +167,35 @@ export class TranslationGateway
       );
       // TODO: Add i18n. Remove unnecessary constants from i18n file
       client.emit(WsEvents.ERROR, { message: 'Failed to process audio data.' });
+    }
+  }
+
+  makeApiKeyAvailable(apiKey: string): void {
+    this.apiKeyUsage.set(apiKey, false);
+    this.AVAILABLE_SPEECHMATICS_KEYS.push(apiKey);
+  }
+
+  private async cleanupSession(clientId: string) {
+    if (this.speechmaticsSessions.has(clientId)) {
+      const { session, apiKey } = this.speechmaticsSessions.get(clientId);
+
+      // Remove the session from the map
+      this.speechmaticsSessions.delete(clientId);
+
+      // Stop the Speechmatics session
+      try {
+        await session.stop();
+        this.logger.debug(
+          `Speechmatics session stopped for client: ${clientId}`,
+        );
+      } catch (error) {
+        this.logger.error(`Error stopping session for client ${clientId}`);
+      }
+
+      // Release the API key
+      if (apiKey) {
+        this.apiKeyUsage.set(apiKey, false);
+      }
     }
   }
 
@@ -289,11 +304,17 @@ export class TranslationGateway
 
     session.addListener('Error', (error) => {
       this.logger.error(
-        `Speechmatics error for client ${clientId}, error: ${error}`,
+        `Speechmatics error for client ${clientId}, error: ${error.type} + ${error.reason}`,
       );
       this.server
         .to(clientId)
-        .emit('message', { type: 'error', message: error.message });
+        .emit('message', { type: 'error', message: error.type });
+
+      // If the error is due to audio usage exceeded, set the date with TTL
+      // to prevent further usage of the API key
+      if (error.reason === 'error: Audio Usage Exceeded') {
+        this.suspendApiKeyForMonth(apiKey);
+      }
     });
 
     await session.start({
@@ -369,5 +390,61 @@ export class TranslationGateway
     return Object.values(TranslationLanguages).includes(
       language as TranslationLanguages,
     );
+  }
+
+  // Method for suspending the API key if it's time is exceeded
+  // Deletes the key from the list of available keys and sets the date when it will be available again
+  private async suspendApiKeyForMonth(apiKey: string): Promise<void> {
+    // Set the key to be frozen for a month
+    const keyExpirationDate = new Date().toISOString();
+    const TTL = this.ONE_MONTH_IN_MS;
+    const key = TranslationCache.PREFIX + apiKey;
+    await this.cacheManager.set(key, keyExpirationDate, TTL);
+
+    // Delete the API key from the list of available keys
+    this.apiKeyUsage.delete(apiKey);
+    this.AVAILABLE_SPEECHMATICS_KEYS.splice(
+      this.AVAILABLE_SPEECHMATICS_KEYS.indexOf(apiKey),
+      1,
+    );
+    this.logger.debug(`API key free time exceeded. Api key has been frozen.`);
+  }
+
+  // Method for setting up only available keys on gateway initialization
+  private async setupAvailableKeysAfterInit() {
+    // Read the list of available keys from the environment
+    const speechmaticsKeys = this.ALL_SPEECHMATICS_API_KEYS;
+
+    // Get the list of frozen keys
+    const keysWithPrefix = speechmaticsKeys.map(
+      (key) => TranslationCache.PREFIX + key,
+    );
+    const frozenKeys = await this.getSuspendedSpeechmaticsKeys(keysWithPrefix);
+
+    // Remove the frozen keys from the list of available keys
+    frozenKeys.forEach((key) => {
+      speechmaticsKeys.splice(speechmaticsKeys.indexOf(key), 1);
+    });
+
+    // Set the list of available keys to global variable
+    this.AVAILABLE_SPEECHMATICS_KEYS = speechmaticsKeys;
+  }
+
+  private async getSuspendedSpeechmaticsKeys(
+    keysWithPrefix: string[],
+  ): Promise<string[]> {
+    // Get the expiration dates array for each key
+    const keyValues = (await this.cacheManager.store.mget(
+      ...keysWithPrefix,
+    )) as string[];
+
+    // Filter out the keys that are frozen
+    const prefixRegExp = /^.*:/;
+    return keyValues
+      .map(
+        (value, index) =>
+          value ? keysWithPrefix[index].replace(prefixRegExp, '') : null, // Extract the key from the prefix if exists
+      )
+      .filter((key) => key !== null); // Filter out the keys that are not frozen
   }
 }

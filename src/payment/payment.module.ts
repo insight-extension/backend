@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PaymentService } from './payment.service';
-import { CacheModule } from '@nestjs/cache-manager';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AccountModule } from 'src/account/account.module';

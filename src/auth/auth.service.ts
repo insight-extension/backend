@@ -12,8 +12,6 @@ import { randomBytes } from 'crypto';
 import bs58 from 'bs58';
 import { sign } from 'tweetnacl';
 import { AccountCandidates } from './types/account-candidates.type';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
 import { JwtExpire as JwtExpiration } from './constants/jwt-expire.enum';
@@ -22,7 +20,10 @@ import { RefreshTokenResponseDto } from './dto/refresh-token-response.dto';
 import { VerifyResponseDto } from './dto/verify-response.dto';
 import { ClaimNonceResponseDto } from './dto/claim-nonce-response.dto';
 import { JwtPayload } from './types/jwt-payload.type';
-import { PublicKeyPayload } from './types/publickey-payload.type';
+import { PublicKeyPayload as ExtraPayload } from './types/publickey-payload.type';
+import { AuthCache } from './constants/auth-cache.enum';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 
 @Injectable()
 export class AuthService {
@@ -33,7 +34,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly i18n: I18nService,
     // cacheManager<key: string(publicKey), value: string(nonce)>
-    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
   // Send nonce to client for signing
   async claimNonce(dto: ClaimNonceDto): Promise<ClaimNonceResponseDto> {
@@ -88,7 +89,8 @@ export class AuthService {
       });
 
       // Check if the token is a refresh token
-      const tokenExpirationValue = (payload.exp - payload.iat) / 60 / 60 / 24; // in days
+      const dayInSeconds = 24 * 60 * 60;
+      const tokenExpirationValue = (payload.exp - payload.iat) / dayInSeconds;
       if (tokenExpirationValue !== JwtExpiration.REFRESH_TOKEN) {
         this.logger.debug(
           `Invalid refresh token expiration value: ${tokenExpirationValue}`,
@@ -106,7 +108,7 @@ export class AuthService {
         throw new Error(this.i18n.t('auth.accountNotFound'));
       }
 
-      const newPayload: PublicKeyPayload = { publicKey: payload.publicKey };
+      const newPayload: ExtraPayload = { publicKey: payload.publicKey };
 
       return {
         accessToken: await this.generateAccessToken(newPayload),
@@ -120,7 +122,7 @@ export class AuthService {
 
   // Validate signed by client nonce
   private async validateSignature(dto: VerifyDto): Promise<ValidateSignature> {
-    const nonce: string = await this.cacheManager.get(dto.publicKey);
+    const nonce: string = await this.getNonceFromCache(dto.publicKey);
     if (!nonce) {
       this.logger.error(`Nonce not found for publicKey: ${dto.publicKey}`);
       throw new BadRequestException(this.i18n.t('auth.candidateNotFound'));
@@ -130,6 +132,7 @@ export class AuthService {
     const signatureUint8 = bs58.decode(dto.signature);
     const msgUint8 = new TextEncoder().encode(nonce);
 
+    // Verify signature
     const isValid = sign.detached.verify(
       msgUint8,
       signatureUint8,
@@ -148,7 +151,9 @@ export class AuthService {
   private async generateNonceForPublicKey(
     dto: ClaimNonceDto,
   ): Promise<AccountCandidates> {
-    const existingNonce: string = await this.cacheManager.get(dto.publicKey);
+    const existingNonce: string = await this.getNonceFromCache(dto.publicKey);
+
+    // If nonce exists, return it
     if (existingNonce) {
       this.logger.debug(`Nonce found for publicKey: ${dto.publicKey}`);
       return {
@@ -156,11 +161,11 @@ export class AuthService {
         nonce: existingNonce,
       };
     }
+    // Otherwise, generate a new nonce
     const nonce = this.generateNonce();
 
     // Store nonce for comparing it later
-    const TTL = 30 * 60 * 1000; // 30 minutes
-    await this.cacheManager.set(dto.publicKey, nonce, TTL);
+    await this.setNonceToCache(dto.publicKey, nonce);
 
     return {
       publicKey: dto.publicKey,
@@ -168,17 +173,13 @@ export class AuthService {
     };
   }
 
-  private async generateAccessToken(
-    payload: PublicKeyPayload,
-  ): Promise<string> {
+  private async generateAccessToken(payload: ExtraPayload): Promise<string> {
     return await this.jwtService.signAsync(payload, {
       expiresIn: `${JwtExpiration.ACCESS_TOKEN}m`,
     });
   }
 
-  private async generateRefreshToken(
-    payload: PublicKeyPayload,
-  ): Promise<string> {
+  private async generateRefreshToken(payload: ExtraPayload): Promise<string> {
     return await this.jwtService.signAsync(payload, {
       expiresIn: `${JwtExpiration.REFRESH_TOKEN}d`,
     });
@@ -187,5 +188,23 @@ export class AuthService {
   private generateNonce(): string {
     const payload = randomBytes(32).toString('hex');
     return `insight: ${payload}`;
+  }
+
+  private async setNonceToCache(
+    publicKey: string,
+    nonce: string,
+  ): Promise<void> {
+    const cacheKey = AuthCache.PREFIX + publicKey; // auth:[publicKey]
+    await this.cacheManager.set(cacheKey, nonce, AuthCache.NONCE_TTL);
+  }
+
+  private async getNonceFromCache(publicKey: string): Promise<string> {
+    const cacheKey = AuthCache.PREFIX + publicKey; // auth:[publicKey]
+    return await this.cacheManager.get(cacheKey);
+  }
+
+  private async deleteNonceFromCache(publicKey: string): Promise<void> {
+    const cacheKey = AuthCache.PREFIX + publicKey; // auth:[publicKey]
+    await this.cacheManager.del(cacheKey);
   }
 }

@@ -19,6 +19,7 @@ import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 import { WsEvents } from 'src/translation/constants/ws-events.enum';
+import { PaymentCache } from './constants/paymentCache.enum';
 
 @Injectable()
 export class PaymentService {
@@ -42,8 +43,10 @@ export class PaymentService {
     private readonly jwtService: JwtService,
     private readonly accountService: AccountService,
     private readonly i18n: I18nService,
+
     // schedulerRegistry<key: string(publicKey), value: Timeout>
     private readonly schedulerRegistry: SchedulerRegistry,
+
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
@@ -202,7 +205,7 @@ export class PaymentService {
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
-      await this.cacheManager.set(userPublicKey, usageStartTime);
+      await this.setStartTimeToCache(userPublicKey, usageStartTime);
       this.logger.debug(
         `Cache set for user [${userPublicKey}] with start time: [${usageStartTime}]`,
       );
@@ -261,7 +264,8 @@ export class PaymentService {
 
       // Get the usage start time from cache
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const usageStartTime: Date = await this.cacheManager.get(userPublicKey);
+      const usageStartTime: Date =
+        await this.getStartTimeFromCache(userPublicKey);
 
       // Check if user has usage start time
       // For situations when timeouts are executed
@@ -371,7 +375,7 @@ export class PaymentService {
         client,
       );
 
-      await this.cacheManager.set(userPublicKey, currentUsageStartTime);
+      await this.setStartTimeToCache(userPublicKey, currentUsageStartTime);
       this.logger.debug(
         `User [${userPublicKey}] set cache with start time: [${currentUsageStartTime}]`,
       );
@@ -399,7 +403,8 @@ export class PaymentService {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       const usageEndTime = new Date();
-      const usageStartTime: Date = await this.cacheManager.get(userPublicKey);
+      const usageStartTime: Date =
+        await this.getStartTimeFromCache(userPublicKey);
 
       // Check if user has usage start time
       // For situations when timeouts are executed
@@ -553,7 +558,8 @@ export class PaymentService {
   private async stopPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const usageStartTime: Date = await this.cacheManager.get(userPublicKey);
+      const usageStartTime: Date =
+        await this.getStartTimeFromCache(userPublicKey);
       // Check if user has usage start time
       // For situations when timeouts are executed
       if (!usageStartTime) {
@@ -766,7 +772,7 @@ export class PaymentService {
   // Reset user's state to initial state as before translation started
   private async clearUserResources(userPublicKey: string): Promise<void> {
     // Clear cache if exists
-    if (await this.cacheManager.get(userPublicKey)) {
+    if (await this.getStartTimeFromCache(userPublicKey)) {
       await this.cacheManager.del(userPublicKey);
       this.logger.debug(`Cache deleted for user [${userPublicKey}]`);
     } else {
@@ -820,5 +826,18 @@ export class PaymentService {
     // Get client's language from handshake's headers
     const lang = client.handshake.headers['accept-language'] || 'en';
     return this.i18n.translate(textToTranslate, { lang });
+  }
+
+  private async setStartTimeToCache(
+    publicKey: string,
+    startTime: Date,
+  ): Promise<void> {
+    const key = PaymentCache.PREFIX + publicKey;
+    await this.cacheManager.set(key, startTime);
+  }
+
+  private async getStartTimeFromCache(publicKey: string): Promise<Date> {
+    const key = PaymentCache.PREFIX + publicKey;
+    return await this.cacheManager.get(key);
   }
 }

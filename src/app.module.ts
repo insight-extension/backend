@@ -14,11 +14,18 @@ import { I18nConfig } from './utils/configs/i18n.config';
 import { LoggerConfig } from './utils/configs/logger.config';
 import { FaucetRoutes } from './faucet/constants/faucet-routes.enum';
 import { DepositProgramRoutes } from './deposit-program/constants/deposit-program-routes.enum';
-import { CacheConfig } from './utils/configs/cache.config';
+import { CacheModule } from '@nestjs/cache-manager';
+import { redisStore } from 'cache-manager-redis-yet';
+import { RedisModule } from './redis/redis.module';
 
 @Module({
   imports: [
     // Setup modules
+    CacheModule.register({
+      isGlobal: true,
+      url: `redis://:admin@localhost:6379`,
+      store: redisStore,
+    }),
     PrismaModule,
     AccountModule,
     AuthModule,
@@ -30,7 +37,7 @@ import { CacheConfig } from './utils/configs/cache.config';
     ThrottlerConfig,
     I18nConfig,
     LoggerConfig,
-    CacheConfig,
+    RedisModule,
   ],
   providers: [
     TranslationModule,

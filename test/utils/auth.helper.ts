@@ -13,6 +13,7 @@ export async function getAccessToken(
 ): Promise<string> {
   const signature = await getSignature(authService, user);
   const { accessToken } = await verifySignature(authService, user, signature);
+  (authService as any).deleteNonceFromCache(user.publicKey.toString());
   return accessToken;
 }
 
@@ -26,6 +27,7 @@ export async function getRefreshToken(
 ): Promise<string> {
   const signature = await getSignature(authService, user);
   const { refreshToken } = await verifySignature(authService, user, signature);
+  (authService as any).deleteNonceFromCache(user.publicKey.toString());
   return refreshToken;
 }
 

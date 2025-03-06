@@ -28,18 +28,24 @@ services:
     ports:
       - '6379:6379'
     environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-    command:
-      [
+      - REDIS_PASSWORD=admin
+    command: [
         'redis-server',
+
         '--requirepass',
-        '${REDIS_PASSWORD}',
+        'admin',
+
         '--appendonly',
         'yes',
+
         '--appendfsync',
         'everysec',
+
         '--dir',
         '/data',
+
+        '--notify-keyspace-events', # Notify about TTL expired data
+        'Ex',
       ]
     volumes:
       - redis_data:/data

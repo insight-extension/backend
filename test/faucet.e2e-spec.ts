@@ -18,6 +18,7 @@ describe('Faucet Module', () => {
   let authService: AuthService;
   let accountService: AccountService;
   const mockSignature = 'tx123';
+  let ip: string;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -42,32 +43,27 @@ describe('Faucet Module', () => {
 
   // --- TEST CLAIM ---
   it('should allow a user to claim USDC', async () => {
-    const ip = '192.168.1.1';
-
     const response = await request(app.getHttpServer())
       .post('/faucet/claim')
       .set('Authorization', `Bearer ${accessToken}`)
-      .set('X-Forwarded-For', ip)
       .expect(HttpStatus.CREATED);
 
     expect(response.body).toEqual({
       signature: mockSignature,
     });
+    ip = response.body.ip;
   });
 
   it('should throw ForbiddenException if IP already claimed faucet', async () => {
-    const ip = '192.168.1.1';
     // Mocking the IP cache behavior to simulate a claim made already
-    await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .post('/faucet/claim')
       .set('Authorization', `Bearer ${accessToken}`)
-      .set('X-Forwarded-For', ip)
       .expect(HttpStatus.CREATED);
 
     await request(app.getHttpServer())
       .post('/faucet/claim')
       .set(HttpHeaders.AUTHORIZATION, `Bearer ${accessToken}`)
-      .set('X-Forwarded-For', ip)
       .expect(HttpStatus.FORBIDDEN)
       .expect({
         message:
@@ -75,10 +71,13 @@ describe('Faucet Module', () => {
         error: 'Forbidden',
         statusCode: HttpStatus.FORBIDDEN,
       });
+      
+    ip = response.body.ip;
   });
 
   afterEach(async () => {
     await accountService.deleteAccount(user.publicKey.toString());
+    await (faucetService as any).deleteIpFromCache(ip);
     await app.close();
   });
 });
