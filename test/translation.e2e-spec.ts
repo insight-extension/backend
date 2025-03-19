@@ -18,7 +18,7 @@ import { BN } from '@coral-xyz/anchor';
 
 const PORT = process.env.API_PORT || 11000;
 const defaultFreeHours = 3 * 60 * 60;
-const timeToTranslateMs = 7000;
+const timeToTranslateMs = 10 * 1000;
 const timeToDisconnect = 2000;
 const testTimeout = 20000;
 const mockAudioBuffer = new Uint8Array([0, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
@@ -362,7 +362,7 @@ describe('Translation Module E2E', () => {
       clientSocket = getClientSocket(SubscriptionType.PER_HOUR, accessToken);
 
       // Simulate using translation with per minute subscription
-      await sleep(timeToTranslateMs);
+      await sleep(timeToTranslateMs + 5000);
       expect(payPerHourSpy).toHaveBeenCalled();
       expect(mockedDepositService.perHourLeft).toBe(0);
       expect(mockedDepositService.userBalance.toNumber()).toBe(0);

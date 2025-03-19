@@ -18,7 +18,7 @@ describe('Faucet Module', () => {
   let authService: AuthService;
   let accountService: AccountService;
   const mockSignature = 'tx123';
-  let ip: string;
+  let ip = '::ffff:127.0.0.1';
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -51,12 +51,11 @@ describe('Faucet Module', () => {
     expect(response.body).toEqual({
       signature: mockSignature,
     });
-    ip = response.body.ip;
   });
 
   it('should throw ForbiddenException if IP already claimed faucet', async () => {
     // Mocking the IP cache behavior to simulate a claim made already
-    const response = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post('/faucet/claim')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(HttpStatus.CREATED);
@@ -71,8 +70,6 @@ describe('Faucet Module', () => {
         error: 'Forbidden',
         statusCode: HttpStatus.FORBIDDEN,
       });
-      
-    ip = response.body.ip;
   });
 
   afterEach(async () => {

@@ -20,6 +20,7 @@ import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
 import { WsEvents } from 'src/translation/constants/ws-events.enum';
 import { PaymentCache } from './constants/paymentCache.enum';
+import { RedisService } from 'src/redis/redis.service';
 
 @Injectable()
 export class PaymentService {
@@ -49,6 +50,7 @@ export class PaymentService {
 
     // cacheManager<key: string(publicKey), value: Date(StartTime)>
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    // private readonly redis: RedisService,
   ) {}
 
   async refundUserBalance(
@@ -368,6 +370,8 @@ export class PaymentService {
         this.logger.debug(`Existing timeout [${userPublicKey}] removed`);
       }
 
+      await this.setStartTimeToCache(userPublicKey, currentUsageStartTime);
+
       // Set expiration timeout for free hours if it's not stopped manually by the user
       this.setFreeHoursExpirationTimeout(
         userFreeHoursLeft,
@@ -375,7 +379,6 @@ export class PaymentService {
         client,
       );
 
-      await this.setStartTimeToCache(userPublicKey, currentUsageStartTime);
       this.logger.debug(
         `User [${userPublicKey}] set cache with start time: [${currentUsageStartTime}]`,
       );
@@ -425,6 +428,7 @@ export class PaymentService {
 
       // Convert time difference to seconds
       const totalUsedTime = Math.round(timeDifferenceInMilliseconds / 1000); // 1000 ms
+
       const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
@@ -491,7 +495,7 @@ export class PaymentService {
       const usageStartTime = new Date();
 
       // Store the usage start time in cache associated with the client's public key
-      await this.cacheManager.set(userPublicKey, usageStartTime);
+      await this.setStartTimeToCache(userPublicKey, usageStartTime);
       this.logger.debug(`Cache set for user [${userPublicKey}]`);
 
       // Determine the expiration time of the user's balance
@@ -558,8 +562,8 @@ export class PaymentService {
   private async stopPayingPerHours(client: Socket): Promise<void> {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
-      const usageStartTime: Date =
-        await this.getStartTimeFromCache(userPublicKey);
+      const usageStartTime = await this.getStartTimeFromCache(userPublicKey);
+
       // Check if user has usage start time
       // For situations when timeouts are executed
       if (!usageStartTime) {
@@ -709,7 +713,7 @@ export class PaymentService {
       );
 
       // Clear user's resources
-      await this.cacheManager.del(userPublicKey);
+      await this.deleteCache(userPublicKey);
       this.logger.debug(`User's [${userPublicKey}] cache deleted`);
 
       // Emit error to client and disconnect him
@@ -742,7 +746,7 @@ export class PaymentService {
     const timeoutCallback = async () => {
       // Reset user's free hours to 0
       await this.accountService.setFreeHoursLeft(0, userPublicKey);
-      await this.cacheManager.del(userPublicKey);
+      await this.deleteCache(userPublicKey);
 
       this.logger.debug(`User's [${userPublicKey}] cache deleted`);
       this.logger.debug(
@@ -773,7 +777,7 @@ export class PaymentService {
   private async clearUserResources(userPublicKey: string): Promise<void> {
     // Clear cache if exists
     if (await this.getStartTimeFromCache(userPublicKey)) {
-      await this.cacheManager.del(userPublicKey);
+      await this.deleteCache(userPublicKey);
       this.logger.debug(`Cache deleted for user [${userPublicKey}]`);
     } else {
       this.logger.warn('No cache found for user');
@@ -833,11 +837,24 @@ export class PaymentService {
     startTime: Date,
   ): Promise<void> {
     const key = PaymentCache.PREFIX + publicKey;
-    await this.cacheManager.set(key, startTime);
+    const isoDate = startTime.toISOString();
+    const TTL = 0; // 0 means no expiration
+    await this.cacheManager.set(key, isoDate, TTL);
   }
 
   private async getStartTimeFromCache(publicKey: string): Promise<Date> {
     const key = PaymentCache.PREFIX + publicKey;
-    return await this.cacheManager.get(key);
+    const isoDate = await this.cacheManager.get<string>(key);
+    if (!isoDate) {
+      return null;
+    }
+    const date = new Date(isoDate);
+    return date;
+  }
+
+  private async deleteCache(publicKey: string): Promise<void> {
+    const key = PaymentCache.PREFIX + publicKey;
+    //await this.redis.del(key);
+    await this.cacheManager.del(key);
   }
 }

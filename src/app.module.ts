@@ -33,11 +33,11 @@ import { RedisModule } from './redis/redis.module';
     PaymentModule,
     FaucetModule,
     DepositProgramModule,
+    RedisModule,
     // Modules with configuration
     ThrottlerConfig,
     I18nConfig,
     LoggerConfig,
-    RedisModule,
   ],
   providers: [
     TranslationModule,

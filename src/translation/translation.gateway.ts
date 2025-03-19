@@ -443,7 +443,7 @@ export class TranslationGateway
     return keyValues
       .map(
         (value, index) =>
-          value ? keysWithPrefix[index].replace(prefixRegExp, '') : null, // Extract the key from the prefix if exists
+          value ? keysWithPrefix[index].replace(prefixRegExp, '') : null, // Extract the key without prefix if exists
       )
       .filter((key) => key !== null); // Filter out the keys that are not frozen
   }

@@ -13,7 +13,6 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import {
   ApiBearerAuth,
   ApiBody,
-  ApiHeader,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -21,7 +20,6 @@ import {
 import { ConfigureFaucetResponseDto } from './dto/configure-faucet-response.dto';
 import { ClaimFaucetResponseDto } from './dto/claim-faucet-response.dto';
 import { ConfigureFaucetDto } from './dto/configure-faucet.dto';
-import { HttpHeaders } from 'src/utils/constants/http-headers.enum';
 import { FaucetRoutes } from './constants/faucet-routes.enum';
 
 @ApiTags(FaucetRoutes.ROOT)

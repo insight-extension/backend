@@ -62,7 +62,7 @@ export class FaucetService {
 
       // If the IP address has already claimed the faucet, throw an error
       if (isoRenewDate) {
-        const cachedRenewDate: Date = new Date(isoRenewDate);
+        const cachedRenewDate = new Date(isoRenewDate);
         const availableInMs = cachedRenewDate.getTime() - Date.now();
         const availableInHours = Math.ceil(availableInMs / (60 * 60 * 1000)); // min * sec * ms
         this.logger.warn(
