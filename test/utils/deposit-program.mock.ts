@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { DepositProgramAccountType } from 'src/deposit-program/constants/account-type.enum';
 import { UnfreezeBalanceResponseDto } from 'src/deposit-program/dto/unfreeze-balance-response.dto';
-import { GetUserInfo } from 'src/deposit-program/types/get-user-info.type';
+import { UserInfo } from 'src/deposit-program/types/get-user-info.type';
 import { sleep } from './payment.helper';
 
 @Injectable()
@@ -26,7 +26,7 @@ export class MockDepositProgramService {
   );
 
   getUserInfo = jest.fn(
-    async (userInfoAddress: PublicKey): Promise<GetUserInfo> => {
+    async (userInfoAddress: PublicKey): Promise<UserInfo> => {
       sleep(this.timeToSleep);
       return {
         perHourLeft: new BN(this.perHourLeft),

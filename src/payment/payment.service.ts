@@ -14,7 +14,6 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { SubscriptionType } from './constants/subscription-type.enum';
 import { AccountService } from 'src/account/account.service';
 import { I18nService } from 'nestjs-i18n';
-import { DepositProgramAccountType as DepositProgramAccount } from '../deposit-program/constants/account-type.enum';
 import { SubscriptionPrice } from './constants/subscription-price.enum';
 import { RefundBalanceResponseDto } from './dto/refund-balance-response.dto';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
@@ -28,6 +27,8 @@ export class PaymentService {
   private readonly RAW_PRICE_PER_MINUTE =
     SubscriptionPrice.PER_MINUTE * 1_000_000;
   private readonly RAW_PRICE_PER_HOUR = SubscriptionPrice.PER_HOUR * 1_000_000;
+  private readonly RAW_PRICE_SUBSCRIPTION =
+    SubscriptionPrice.PER_MONTH * 1_000_000;
 
   // Free hours configuration values
   private readonly USER_DEFAULT_FREE_HOURS: number = 3 * 60 * 60; // hours * seconds * milliseconds
@@ -35,7 +36,7 @@ export class PaymentService {
     7 * 24 * 60 * 60 * 1000;
 
   // Per minute payment configuration values
-  private readonly SECONDS_FROM_ROUND_TO_MINUTE = 40;
+  private readonly SECONDS_FROM_ROUND_TO_MIN = 40;
 
   constructor(
     private readonly programService: DepositProgramService,
@@ -54,10 +55,8 @@ export class PaymentService {
   ): Promise<RefundBalanceResponseDto> {
     try {
       // User's PDA address
-      const userInfoAddress = this.programService.getUserInfoAddress(
-        DepositProgramAccount.INFO,
-        userPublicKey,
-      );
+      const userInfoAddress =
+        this.programService.getUserInfoAddress(userPublicKey);
 
       const userInfo = await this.programService.getUserInfo(userInfoAddress);
 
@@ -115,6 +114,9 @@ export class PaymentService {
         case SubscriptionType.PER_HOUR:
           await this.startPayingPerHours(client);
           break;
+        case SubscriptionType.PER_MONTH:
+          await this.startPerMonthUsing(client);
+          break;
         default:
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
@@ -150,6 +152,8 @@ export class PaymentService {
         case SubscriptionType.PER_HOUR:
           await this.stopPayingPerHours(client);
           break;
+        case SubscriptionType.PER_MONTH:
+          break; // no logic for stopping subscription
         default:
           throw new Error(
             this.i18nWs(client, 'payment.errors.invalidSubscriptionType'),
@@ -174,43 +178,28 @@ export class PaymentService {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       this.logger.debug(`User [${userPublicKey}] started paying per usage`);
 
-      const userInfoAddress = this.programService.getUserInfoAddress(
-        DepositProgramAccount.INFO,
-        userPublicKey,
+      const userBalance = await this.getVaultBalance(userPublicKey);
+
+      // Throw error if user has insufficient balance
+      this.checkForSufficientBalance(
+        userBalance,
+        this.RAW_PRICE_PER_MINUTE,
+        client,
       );
 
-      // ATA address where user balance is stored
-      const userVaultAddress =
-        await this.programService.getUserVaultAddress(userInfoAddress);
-
-      const userVaultBalance =
-        await this.programService.getUserVaultBalance(userVaultAddress);
-
-      // Check if user has sufficient balance
-      if (userVaultBalance < this.RAW_PRICE_PER_MINUTE) {
-        this.logger.error(`User [${userPublicKey}] has insufficient balance`);
-        throw new Error(
-          this.i18nWs(client, 'payment.errors.insufficientBalance'),
-        );
-      }
-
-      // Freeze user balance
       await this.programService.freezeBalance(userPublicKey);
       this.logger.debug(`User's [${userPublicKey}] balance is frozen`);
 
       // Define translation usage start time
       const usageStartTime = new Date();
 
-      // Store the usage start time in cache associated with the client's public key
       this.cacheManager.set(userPublicKey, usageStartTime);
       this.logger.debug(
         `Cache set for user [${userPublicKey}] with start time: [${usageStartTime}]`,
       );
 
       // Calculate the total minutes the user can use with his balance
-      const minutesLimit = Math.floor(
-        userVaultBalance / this.RAW_PRICE_PER_MINUTE,
-      );
+      const minutesLimit = Math.floor(userBalance / this.RAW_PRICE_PER_MINUTE);
 
       // Determine the expiration time of the user's balance
       const usageTimeLimit = this.getTimeLimitPerMinutes(
@@ -230,7 +219,7 @@ export class PaymentService {
         userPublicKey,
         usageStartTime,
         usageTimeLimit,
-        userVaultBalance,
+        userBalance,
       );
       this.logger.debug(
         `Usage time limit set for user [${userPublicKey}]: [${usageTimeLimit}]`,
@@ -276,16 +265,16 @@ export class PaymentService {
       const timeDifference = usageEndTime.getTime() - usageStartTime.getTime();
 
       // Convert the time difference to minutes
-      const timeDifferenceInMinutes = timeDifference / (60 * 1000); // 60 sec * 1000 ms
+      const timeDifferenceInMin = timeDifference / (60 * 1000); // 60 sec * 1000 ms
 
       // Convert seconds into minutes for comparison
-      const secondsInMinutes = this.SECONDS_FROM_ROUND_TO_MINUTE / 60;
+      const secondsInMin = this.SECONDS_FROM_ROUND_TO_MIN / 60;
 
       // Round up the total used minutes if seconds >= SECONDS_FROM_ROUND_TO_MINUTE
       const totalUsedMinutes =
-        timeDifferenceInMinutes % 1 >= secondsInMinutes
-          ? Math.ceil(timeDifferenceInMinutes)
-          : Math.floor(timeDifferenceInMinutes);
+        timeDifferenceInMin % 1 >= secondsInMin
+          ? Math.ceil(timeDifferenceInMin)
+          : Math.floor(timeDifferenceInMin);
 
       const totalPrice = totalUsedMinutes * this.RAW_PRICE_PER_MINUTE;
       this.logger.debug(
@@ -338,11 +327,11 @@ export class PaymentService {
       // Check if renew is available
       let userFreeHoursLeft =
         await this.accountService.getFreeHoursLeft(userPublicKey);
-      const differenceInMilliseconds =
+      const differenceInMs =
         currentUsageStartTime.getTime() - freeHoursStartDate.getTime();
 
       const isRenewAvailable =
-        differenceInMilliseconds >= this.TIME_TO_RENEW_FREE_HOURS_IN_MS;
+        differenceInMs >= this.TIME_TO_RENEW_FREE_HOURS_IN_MS;
 
       // Renew free hour if available
       if (isRenewAvailable) {
@@ -411,7 +400,7 @@ export class PaymentService {
       }
 
       // Calculate remaining free hours
-      const timeDifferenceInMilliseconds =
+      const timeDifferenceInMs =
         usageEndTime.getTime() - usageStartTime.getTime();
 
       // Get user's free hours left in seconds
@@ -419,16 +408,16 @@ export class PaymentService {
         await this.accountService.getFreeHoursLeft(userPublicKey);
 
       // Convert time difference to seconds
-      const totalUsedTime = Math.round(timeDifferenceInMilliseconds / 1000); // 1000 ms
-      const remainingFreeHoursInSeconds = userFreeHoursLeft - totalUsedTime;
+      const totalUsedTime = Math.round(timeDifferenceInMs / 1000); // 1000 ms
+      const remainingFreeHoursInSec = userFreeHoursLeft - totalUsedTime;
 
       // Set user's free hours to the remaining free hours
       await this.accountService.setFreeHoursLeft(
-        remainingFreeHoursInSeconds,
+        remainingFreeHoursInSec,
         userPublicKey,
       );
       this.logger.debug(
-        `User's [${userPublicKey}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSeconds}]`,
+        `User's [${userPublicKey}] free hours decreased from [${userFreeHoursLeft}] to [${remainingFreeHoursInSec}]`,
       );
       await this.clearUserResources(userPublicKey);
     } catch (error) {
@@ -448,10 +437,8 @@ export class PaymentService {
     try {
       const userPublicKey = this.getPublicKeyFromWsClient(client);
       this.logger.debug(`Starting pay per hours for [${userPublicKey}]`);
-      const userInfoAddress = this.programService.getUserInfoAddress(
-        DepositProgramAccount.INFO,
-        userPublicKey,
-      );
+      const userInfoAddress =
+        this.programService.getUserInfoAddress(userPublicKey);
 
       // ATA address where user's balance is stored
       const userVaultAddress =
@@ -494,18 +481,17 @@ export class PaymentService {
         userVaultBalance / this.RAW_PRICE_PER_HOUR,
       );
 
-      const availableTimeInMilliseconds =
-        availableTimeFromBalance * 60 * 60 * 1000; // minutes * seconds * milliseconds
+      const availableTimeInMs = availableTimeFromBalance * 60 * 60 * 1000; // minutes * seconds * milliseconds
 
-      let usageTimeLimit = new Date(Date.now() + availableTimeInMilliseconds);
+      let usageTimeLimit = new Date(Date.now() + availableTimeInMs);
 
       // Recalculate the time limit for the user's balance if free hours are available
       if (perHoursLeft > 0) {
-        const perHoursLeftInMilliseconds = perHoursLeft * 1000; // 1000 milliseconds
+        const perHoursLeftInMs = perHoursLeft * 1000; // 1000 milliseconds
 
         // Add hours left to the available time
         usageTimeLimit = new Date(
-          Date.now() + availableTimeInMilliseconds + perHoursLeftInMilliseconds,
+          Date.now() + availableTimeInMs + perHoursLeftInMs,
         );
       }
 
@@ -567,13 +553,10 @@ export class PaymentService {
       const usageEndTime = new Date();
 
       // Calculate the total used time in milliseconds
-      const usageTimeInMilliseconds =
-        usageEndTime.getTime() - usageStartTime.getTime();
+      const usageTimeInMs = usageEndTime.getTime() - usageStartTime.getTime();
 
-      const userInfoAddress = this.programService.getUserInfoAddress(
-        DepositProgramAccount.INFO,
-        userPublicKey,
-      );
+      const userInfoAddress =
+        this.programService.getUserInfoAddress(userPublicKey);
       const userInfo = await this.programService.getUserInfo(userInfoAddress);
 
       if (!userInfo) {
@@ -584,7 +567,7 @@ export class PaymentService {
       const perHoursLeft: number = userInfo.perHourLeft.toNumber();
       const perHoursLeftInHours = perHoursLeft / (60 * 60); // 60 seconds * 60 minutes
 
-      const usageTimeInHours = usageTimeInMilliseconds / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
+      const usageTimeInHours = usageTimeInMs / (60 * 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
       const totalUsageInHours = perHoursLeftInHours - usageTimeInHours;
 
       // If totalUsage is negative, user has used more remaining hours than he has left
@@ -596,7 +579,7 @@ export class PaymentService {
         // Set per hours left after the usage
         const newPerHoursLeft = totalHoursToPay - Math.abs(totalUsageInHours);
 
-        const newPerHoursLeftInSeconds = Math.round(newPerHoursLeft * 60 * 60); // 60 minutes * 60 seconds
+        const newPerHoursLeftInSec = Math.round(newPerHoursLeft * 60 * 60); // 60 minutes * 60 seconds
 
         // Calculate the total price for the used hours
         const rawTotalPrice = totalHoursToPay * this.RAW_PRICE_PER_HOUR;
@@ -605,21 +588,21 @@ export class PaymentService {
         await this.programService.payPerHour(
           userPublicKey,
           rawTotalPrice,
-          newPerHoursLeftInSeconds,
+          newPerHoursLeftInSec,
         );
         this.logger.debug(
-          `User's [${userPublicKey}] per hours left: ${newPerHoursLeftInSeconds} seconds`,
+          `User's [${userPublicKey}] per hours left: ${newPerHoursLeftInSec} seconds`,
         );
         this.logger.debug(
           `User [${userPublicKey}] paid [${rawTotalPrice}] tokens for [${totalHoursToPay}] used hours`,
         );
       } else {
         // Set per hours left after the usage
-        const totalUsageInSeconds = Math.round(totalUsageInHours * 60 * 60); // 60 minutes * 60 seconds
+        const totalUsageInSec = Math.round(totalUsageInHours * 60 * 60); // 60 minutes * 60 seconds
         await this.programService.payPerHour(
           userPublicKey,
           0, // No new hours to pay
-          totalUsageInSeconds,
+          totalUsageInSec,
         );
         this.logger.debug(
           `User's [${userPublicKey}] per hours left: [${totalUsageInHours}]`,
@@ -646,16 +629,68 @@ export class PaymentService {
     }
   }
 
+  private async startPerMonthUsing(client: Socket): Promise<void> {
+    const userPublicKey = this.getPublicKeyFromWsClient(client);
+    this.logger.debug(
+      `User [${userPublicKey}] started paying with subscription`,
+    );
+    const userInfoAddress =
+      this.programService.getUserInfoAddress(userPublicKey);
+    const userInfo = await this.programService.getUserInfo(userInfoAddress);
+
+    const dateNowInSec = Math.floor(Date.now() / 1000); // 1000 ms
+
+    // Buy subscription if necessary
+    if (userInfo.subscriptionEndsAt <= dateNowInSec) {
+      const userBalance = await this.getVaultBalance(userPublicKey);
+
+      // Throws error if balance is insufficient
+      this.checkForSufficientBalance(
+        userBalance,
+        this.RAW_PRICE_SUBSCRIPTION,
+        client,
+      );
+      this.programService.buySubscription(userPublicKey);
+      this.logger.debug(`User [${userPublicKey}] bought subscription`);
+    }
+  }
+
+  private async getVaultBalance(userPublicKey: string): Promise<number> {
+    const userInfoAddress =
+      this.programService.getUserInfoAddress(userPublicKey);
+    // ATA address where user balance is stored
+    const userVaultAddress =
+      await this.programService.getUserVaultAddress(userInfoAddress);
+
+    const userVaultBalance =
+      await this.programService.getUserVaultBalance(userVaultAddress);
+
+    return userVaultBalance;
+  }
+
+  private checkForSufficientBalance(
+    balance: number,
+    price: number,
+    client: Socket,
+  ): void {
+    if (balance < price) {
+      this.logger.error(`User has insufficient balance`);
+      throw new Error(
+        this.i18nWs(client, 'payment.errors.insufficientBalance'),
+      );
+    }
+  }
+
   private getTimeLimitPerMinutes(
     startUsageTime: Date,
     minutesLimit: number,
   ): Date {
     // Convert minutes limit to milliseconds
-    const minutesLimitToMilliseconds = minutesLimit * 60 * 1000;
+    const minutesLimitToMs = minutesLimit * 60 * 1000;
 
     // Calculate the time limit for the user's balance
     const usageTimeLimit = new Date(
-      startUsageTime.getTime() + minutesLimitToMilliseconds,
+      startUsageTime.getTime() + minutesLimitToMs,
     );
     return usageTimeLimit;
   }
@@ -681,8 +716,7 @@ export class PaymentService {
     rawTotalPrice: number,
     hasRemainingHours: boolean = false, // Only for per hours payment
   ): Promise<void> {
-    const millisecondsToExecute =
-      usageTimeLimit.getTime() - usageStartTime.getTime();
+    const msToExecute = usageTimeLimit.getTime() - usageStartTime.getTime();
 
     const taskName = userPublicKey;
     // Define timeout callback to execute when time limit is reached
@@ -721,10 +755,10 @@ export class PaymentService {
     };
 
     // Add timeout to scheduler registry
-    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+    const timeout = setTimeout(timeoutCallback, msToExecute);
     this.schedulerRegistry.addTimeout(taskName, timeout);
     this.logger.debug(
-      `Timeout added to scheduler for user: [${userPublicKey}] executes in [${millisecondsToExecute}ms]`,
+      `Timeout added to scheduler for user: [${userPublicKey}] executes in [${msToExecute}ms]`,
     );
   }
 
@@ -754,12 +788,12 @@ export class PaymentService {
     };
 
     // Add timeout to scheduler registry
-    const millisecondsToExecute = userFreeHoursLeft * 1000; // 60 seconds * 1000 milliseconds
-    const timeout = setTimeout(timeoutCallback, millisecondsToExecute);
+    const msToExecute = userFreeHoursLeft * 1000; // 60 seconds * 1000 milliseconds
+    const timeout = setTimeout(timeoutCallback, msToExecute);
     const taskName = userPublicKey;
     this.schedulerRegistry.addTimeout(taskName, timeout);
     this.logger.debug(
-      `Timeout added to scheduler for user: [${userPublicKey}] executes in [${millisecondsToExecute}ms]`,
+      `Timeout added to scheduler for user: [${userPublicKey}] executes in [${msToExecute}ms]`,
     );
   }
 
