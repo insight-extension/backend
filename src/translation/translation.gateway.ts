@@ -18,6 +18,7 @@ import { ExtraHeaders } from './constants/extra-headers.enum';
 import { TranslationLanguages } from './constants/translation-languages.enum';
 import { WsEvents } from './constants/ws-events.enum';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
+import WebSocket from 'ws';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -366,5 +367,34 @@ export class TranslationGateway
     return Object.values(TranslationLanguages).includes(
       language as TranslationLanguages,
     );
+  }
+
+  private createOpenAISession() {
+    const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
+    const ws = new WebSocket(url, this.getOpenAIHeaders());
+
+    ws.on('open', function open() {
+      console.log('Connected to server.');
+    });
+
+    ws.on('message', function incoming(message) {
+      console.log(JSON.parse(message.toString()));
+    });
+  }
+
+  private getOpenAIHeaders() {
+    return {
+      headers: {
+        Authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
+        'OpenAI-Beta': 'realtime=v1',
+        input_audio_format: 'pcm16', // 24kHz sample rate
+        input_audio_transcription: {
+          model: 'gpt-4o-mini-transcribe',
+          language: TranslationLanguages.ENGLISH, // TODO: get from headers
+          prompt: '',
+        },
+        // turn_detection: null
+      },
+    };
   }
 }
