@@ -630,28 +630,41 @@ export class PaymentService {
   }
 
   private async startPerMonthUsing(client: Socket): Promise<void> {
-    const userPublicKey = this.getPublicKeyFromWsClient(client);
-    this.logger.debug(
-      `User [${userPublicKey}] started paying with subscription`,
-    );
-    const userInfoAddress =
-      this.programService.getUserInfoAddress(userPublicKey);
-    const userInfo = await this.programService.getUserInfo(userInfoAddress);
-
-    const dateNowInSec = Math.floor(Date.now() / 1000); // 1000 ms
-
-    // Buy subscription if necessary
-    if (userInfo.subscriptionEndsAt <= dateNowInSec) {
-      const userBalance = await this.getVaultBalance(userPublicKey);
-
-      // Throws error if balance is insufficient
-      this.checkForSufficientBalance(
-        userBalance,
-        this.RAW_PRICE_SUBSCRIPTION,
-        client,
+    try {
+      const userPublicKey = this.getPublicKeyFromWsClient(client);
+      this.logger.debug(
+        `User [${userPublicKey}] started paying with subscription`,
       );
-      this.programService.buySubscription(userPublicKey);
-      this.logger.debug(`User [${userPublicKey}] bought subscription`);
+      const userInfoAddress =
+        this.programService.getUserInfoAddress(userPublicKey);
+      const userInfo = await this.programService.getUserInfo(userInfoAddress);
+
+      const dateNowInSec = Math.floor(Date.now() / 1000); // 1000 ms
+
+      // Buy subscription if necessary
+      if (userInfo.subscriptionEndsAt <= dateNowInSec) {
+        const userBalance = await this.getVaultBalance(userPublicKey);
+
+        // Throws error if balance is insufficient
+        this.checkForSufficientBalance(
+          userBalance,
+          this.RAW_PRICE_SUBSCRIPTION,
+          client,
+        );
+        this.programService.buySubscription(userPublicKey);
+        this.logger.debug(`User [${userPublicKey}] bought subscription`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error starting subscription payment: [${error.message}]`,
+      );
+      // Emit error to client and disconnect him
+      const message = this.i18nWs(
+        client,
+        'payment.messages.startSubscriptionFailed',
+      );
+      this.emitErrorToClient(client, message, error);
+      client.disconnect();
     }
   }
 
