@@ -18,7 +18,7 @@ import { ExtraHeaders } from './constants/extra-headers.enum';
 import { TranslationLanguages } from './constants/translation-languages.enum';
 import { WsEvents } from './constants/ws-events.enum';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
-import WebSocket from 'ws';
+import * as WebSocket from 'ws';
 
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TranslationGateway
@@ -54,6 +54,8 @@ export class TranslationGateway
   // OpenAI client
   private readonly openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
 
+  private readonly openAIWs = this.createOpenAISession();
+
   afterInit() {
     this.logger.log('Translation gateway initialized');
 
@@ -72,7 +74,7 @@ export class TranslationGateway
 
       client.on(WsEvents.AUDIO_DATA, async (data: unknown) => {
         if (data instanceof Uint8Array) {
-          this.logger.debug('Audio data received');
+          //this.logger.debug('Audio data received');
           await this.handleAudioData(Buffer.from(data), client);
         } else {
           this.logger.error('Invalid audio data received');
@@ -173,6 +175,10 @@ export class TranslationGateway
     const { session } = this.speechmaticsSessions.get(client.id);
     try {
       session.sendAudio(audioData);
+
+      // TODO: remove this test code
+
+      this.sendAudioToOpenAI(this.openAIWs, audioData);
     } catch (error) {
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
@@ -373,13 +379,44 @@ export class TranslationGateway
     const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
     const ws = new WebSocket(url, this.getOpenAIHeaders());
 
-    ws.on('open', function open() {
+    ws.on('open', () => {
       console.log('Connected to server.');
+      this.setSessionConfig(ws);
     });
 
-    ws.on('message', function incoming(message) {
+    let isSessionUpdated = false;
+    ws.on('message', (message: any) => {
       console.log(JSON.parse(message.toString()));
+
+      if (message.type === 'transcription_session.created') {
+        console.log('Session created:', JSON.parse(message.toString()));
+      }
+
+      // Handle the update message
+      if (message.type === 'transcription_session.update') {
+        isSessionUpdated = true;
+        console.log('Session updated:', JSON.parse(message.toString()));
+      }
+
+      // If session is not updated, do nothing & wait for update
+      if (!isSessionUpdated) {
+        return;
+      }
+
+      switch (message.type) {
+        case 'transcription_session.error':
+          console.error('Session error:', message);
+          break;
+        case 'response.audio_transcript.delta':
+          console.log('Audio transcript delta:', message);
+          break;
+        case 'response.audio_transcript.done':
+          console.log('Audio transcript done:', message);
+          break;
+      }
     });
+
+    return ws;
   }
 
   private getOpenAIHeaders() {
@@ -387,14 +424,44 @@ export class TranslationGateway
       headers: {
         Authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
         'OpenAI-Beta': 'realtime=v1',
-        input_audio_format: 'pcm16', // 24kHz sample rate
-        input_audio_transcription: {
-          model: 'gpt-4o-mini-transcribe',
-          language: TranslationLanguages.ENGLISH, // TODO: get from headers
-          prompt: '',
-        },
-        // turn_detection: null
       },
     };
+  }
+
+  private setSessionConfig(ws: WebSocket) {
+    ws.send(
+      JSON.stringify({
+        type: 'transcription_session.update',
+        session: this.getSessionConfig(),
+      }),
+    );
+  }
+
+  private getSessionConfig() {
+    return {
+      input_audio_noise_reduction: null,
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 200,
+      },
+      input_audio_format: 'pcm16',
+      input_audio_transcription: {
+        model: 'gpt-4o-mini-transcribe',
+        language: 'en',
+        prompt: '',
+      },
+      include: null,
+    };
+  }
+
+  private sendAudioToOpenAI(ws: WebSocket, audioData: Buffer): void {
+    ws.send(
+      JSON.stringify({
+        type: 'input_audio_buffer.append',
+        audio: audioData.toString('base64'),
+      }),
+    );
   }
 }
