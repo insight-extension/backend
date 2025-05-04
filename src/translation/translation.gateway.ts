@@ -122,12 +122,18 @@ export class TranslationGateway
     @ConnectedSocket() client: Socket,
   ) {
     // TODO: remove this test code
-    if (!this.transcriptionSessions.has(client.id)) {
-      console.log('Creating transcription session');
-      const session = this.createTranscriptionSession(client);
-      this.transcriptionSessions.set(client.id, {
-        session,
-        isInitialized: false,
+    try {
+      if (!this.transcriptionSessions.has(client.id)) {
+        console.log('Creating transcription session');
+        const session = this.createTranscriptionSession(client);
+        this.transcriptionSessions.set(client.id, {
+          session,
+          isInitialized: false,
+        });
+      }
+    } catch (error) {
+      client.emit(WsEvents.ERROR, {
+        message: 'Failed to create transcription session.',
       });
     }
 
@@ -394,12 +400,35 @@ export class TranslationGateway
   }
 
   private createTranscriptionSession(client: Socket): WebSocket {
+    const sourceLanguage = this.extractHeaderValue(
+      client,
+      ExtraHeaders.SOURCE_LANGUAGE,
+    );
+    const targetLanguage = this.extractHeaderValue(
+      client,
+      ExtraHeaders.TARGET_LANGUAGE,
+    );
+    this.logger.debug(
+      `Source language: ${sourceLanguage}, Target language: ${targetLanguage}`,
+    );
+
+    // Validate languages
+    if (
+      !this.isValidTranslationLanguage(sourceLanguage) ||
+      !this.isValidTranslationLanguage(targetLanguage)
+    ) {
+      throw new Error('Invalid source or target language.');
+    }
+    if (sourceLanguage === targetLanguage) {
+      throw new Error('Source and target languages are the same.');
+    }
+
     const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
     const ws = new WebSocket(url, this.getOpenAIHeaders());
 
     ws.on('open', () => {
       console.log('Connected to server.');
-      this.setSessionConfig(ws);
+      this.setSessionConfig(ws, sourceLanguage);
     });
 
     ws.on('message', async (message: any) => {
@@ -447,8 +476,8 @@ export class TranslationGateway
           }
           const translation = await this.translateText(
             transcriptionSentence,
-            'en',
-            'ru',
+            sourceLanguage,
+            targetLanguage,
           );
           translationBuffer += translation + ' ';
           client.emit(
@@ -473,16 +502,19 @@ export class TranslationGateway
     };
   }
 
-  private setSessionConfig(ws: WebSocket) {
+  private setSessionConfig(
+    ws: WebSocket,
+    sourceLanguage: TranslationLanguages,
+  ) {
     ws.send(
       JSON.stringify({
         type: 'transcription_session.update',
-        session: this.getSessionConfig(),
+        session: this.getSessionConfig(sourceLanguage),
       }),
     );
   }
 
-  private getSessionConfig() {
+  private getSessionConfig(sourceLanguage: TranslationLanguages) {
     return {
       input_audio_noise_reduction: null,
       turn_detection: {
@@ -494,7 +526,7 @@ export class TranslationGateway
       input_audio_format: 'pcm16',
       input_audio_transcription: {
         model: 'gpt-4o-mini-transcribe',
-        language: 'en',
+        language: sourceLanguage,
         prompt: '',
       },
       include: null,
