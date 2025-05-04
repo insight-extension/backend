@@ -40,6 +40,11 @@ export class TranslationGateway
     { session: RealtimeSession; apiKey: string }
   > = new Map();
 
+  private readonly transcriptionSessions: Map<
+    string,
+    { session: WebSocket; isInitialized: boolean }
+  > = new Map();
+
   // To track sessions being created
   private creatingSessions: Set<string> = new Set();
 
@@ -53,8 +58,6 @@ export class TranslationGateway
 
   // OpenAI client
   private readonly openai = new OpenAI({ apiKey: this.OPENAI_API_KEY });
-
-  private readonly openAIWs = this.createOpenAISession();
 
   afterInit() {
     this.logger.log('Translation gateway initialized');
@@ -118,67 +121,83 @@ export class TranslationGateway
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
   ) {
-    // If a session is already being created, wait for completion
-    if (this.creatingSessions.has(client.id)) {
-      return;
+    // TODO: remove this test code
+    if (!this.transcriptionSessions.has(client.id)) {
+      console.log('Creating transcription session');
+      const session = this.createTranscriptionSession(client);
+      this.transcriptionSessions.set(client.id, {
+        session,
+        isInitialized: false,
+      });
     }
+
+    // If a session is already being created, wait for completion
+    // if (this.creatingSessions.has(client.id)) {
+    //   return;
+    // }
 
     // Check if a session already exists
-    if (!this.speechmaticsSessions.has(client.id)) {
-      this.creatingSessions.add(client.id); // Mark that session creation has started
-      try {
-        this.logger.debug(`No session found for client ${client.id}`);
-        const apiKey = this.getAvailableApiKey();
+    // if (!this.speechmaticsSessions.has(client.id)) {
+    //   this.creatingSessions.add(client.id); // Mark that session creation has started
+    //   try {
+    //     this.logger.debug(`No session found for client ${client.id}`);
+    //     const apiKey = this.getAvailableApiKey();
 
-        if (!apiKey) {
-          this.logger.error(`No available API keys for client ${client.id}`);
-          client.emit(WsEvents.ERROR, {
-            message: 'No available slots for translations. Try again later.',
-          });
-          return;
-        }
+    //     if (!apiKey) {
+    //       this.logger.error(`No available API keys for client ${client.id}`);
+    //       client.emit(WsEvents.ERROR, {
+    //         message: 'No available slots for translations. Try again later.',
+    //       });
+    //       return;
+    //     }
 
-        // this.apiKeyUsage.set(apiKey, false);
-        let session: RealtimeSession;
-        try {
-          session = await this.createSpeechmaticsSession(apiKey, client.id);
-        } catch (error) {
-          this.apiKeyUsage.set(apiKey, false);
-          throw new Error(error.message);
-        }
+    //     // this.apiKeyUsage.set(apiKey, false);
+    //     let session: RealtimeSession;
+    //     try {
+    //       session = await this.createSpeechmaticsSession(apiKey, client.id);
+    //     } catch (error) {
+    //       this.apiKeyUsage.set(apiKey, false);
+    //       throw new Error(error.message);
+    //     }
 
-        // Check if the client disconnected while the session was being created
-        if (!client.connected) {
-          try {
-            await session.stop();
-          } catch (error) {
-            this.logger.error(`Error stopping session for client ${client.id}`);
-          }
-          this.apiKeyUsage.set(apiKey, false);
-          return;
-        }
-        this.speechmaticsSessions.set(client.id, { session, apiKey });
-      } catch (error) {
-        this.logger.error(
-          `Error creating session for client ${client.id}, error ${error}`,
-        );
-        client.emit(WsEvents.ERROR, {
-          message: 'Failed to start translation session.',
-        });
-        return;
-      } finally {
-        this.creatingSessions.delete(client.id); // Remove the lock
-      }
-    }
+    //     // Check if the client disconnected while the session was being created
+    //     if (!client.connected) {
+    //       try {
+    //         await session.stop();
+    //       } catch (error) {
+    //         this.logger.error(`Error stopping session for client ${client.id}`);
+    //       }
+    //       this.apiKeyUsage.set(apiKey, false);
+    //       return;
+    //     }
+    //     this.speechmaticsSessions.set(client.id, { session, apiKey });
+    //   } catch (error) {
+    //     this.logger.error(
+    //       `Error creating session for client ${client.id}, error ${error}`,
+    //     );
+    //     client.emit(WsEvents.ERROR, {
+    //       message: 'Failed to start translation session.',
+    //     });
+    //     return;
+    //   } finally {
+    //     this.creatingSessions.delete(client.id); // Remove the lock
+    //   }
+    // }
 
-    // If the session already exists, send audio data
-    const { session } = this.speechmaticsSessions.get(client.id);
+    // // If the session already exists, send audio data
+    // const { session } = this.speechmaticsSessions.get(client.id);
+    const transcriptionSession = this.transcriptionSessions.get(client.id); // TODO: remove this test code
     try {
-      session.sendAudio(audioData);
-
+      //session.sendAudio(audioData);
       // TODO: remove this test code
-
-      this.sendAudioToOpenAI(this.openAIWs, audioData);
+      if (!transcriptionSession.isInitialized) {
+        console.error(
+          'Transcription session is not initialized yet. Waiting for initialization.',
+        );
+        return;
+      }
+      console.log('Sending audio data to OpenAI');
+      this.sendAudioToOpenAI(transcriptionSession.session, audioData);
     } catch (error) {
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
@@ -237,68 +256,68 @@ export class TranslationGateway
     // Buffer for accumulating text received from the client
     let clientBuffer = '';
 
-    session.addListener('AddTranscript', async (message) => {
-      const transcript = message.metadata.transcript;
-      this.logger.debug(
-        `Transcript received for client ${clientId}: ${transcript}`,
-      );
+    // session.addListener('AddTranscript', async (message) => {
+    //   const transcript = message.metadata.transcript;
+    //   this.logger.debug(
+    //     `Transcript received for client ${clientId}: ${transcript}`,
+    //   );
 
-      // Update the buffer, ensuring seamless merging of text
-      clientBuffer = clientBuffer.trim() + ` ${transcript.trim()}`;
+    //   // Update the buffer, ensuring seamless merging of text
+    //   clientBuffer = clientBuffer.trim() + ` ${transcript.trim()}`;
 
-      // Extract complete sentences
-      const completedSentences = this.extractCompletedSentences(clientBuffer);
-      if (completedSentences.length > 0) {
-        clientBuffer = this.getRemainingBuffer(clientBuffer);
+    //   // Extract complete sentences
+    //   const completedSentences = this.extractCompletedSentences(clientBuffer);
+    //   if (completedSentences.length > 0) {
+    //     clientBuffer = this.getRemainingBuffer(clientBuffer);
 
-        for (const sentence of completedSentences) {
-          try {
-            // Translate the extracted sentence
-            const translatedText = await this.translateText(
-              sentence,
-              sourceLanguage,
-              targetLanguage,
-            );
-            this.logger.debug(
-              `Translation for client ${clientId}: ${translatedText}`,
-            );
+    //     for (const sentence of completedSentences) {
+    //       try {
+    //         // Translate the extracted sentence
+    //         const translatedText = await this.translateText(
+    //           sentence,
+    //           sourceLanguage,
+    //           targetLanguage,
+    //         );
+    //         this.logger.debug(
+    //           `Translation for client ${clientId}: ${translatedText}`,
+    //         );
 
-            // Send both transcription and translation
-            this.server
-              .to(clientId)
-              .emit(
-                'message',
-                JSON.stringify({ type: 'transcript', transcript: sentence }),
-              );
-            this.server.to(clientId).emit(
-              'message',
-              JSON.stringify({
-                type: 'translation',
-                translation: translatedText,
-              }),
-            );
-          } catch (error) {
-            this.logger.error(`Error translating: ${sentence}`);
-            this.server.to(clientId).emit(
-              'message',
-              JSON.stringify({
-                type: 'error',
-                message: 'Translation failed.',
-              }),
-            );
-          }
-        }
-      }
-    });
+    //         // Send both transcription and translation
+    //         this.server
+    //           .to(clientId)
+    //           .emit(
+    //             'message',
+    //             JSON.stringify({ type: 'transcript', transcript: sentence }),
+    //           );
+    //         this.server.to(clientId).emit(
+    //           'message',
+    //           JSON.stringify({
+    //             type: 'translation',
+    //             translation: translatedText,
+    //           }),
+    //         );
+    //       } catch (error) {
+    //         this.logger.error(`Error translating: ${sentence}`);
+    //         this.server.to(clientId).emit(
+    //           'message',
+    //           JSON.stringify({
+    //             type: 'error',
+    //             message: 'Translation failed.',
+    //           }),
+    //         );
+    //       }
+    //     }
+    //   }
+    // });
 
-    session.addListener('Error', (error) => {
-      this.logger.error(
-        `Speechmatics error for client ${clientId}, error: ${error}`,
-      );
-      this.server
-        .to(clientId)
-        .emit('message', { type: 'error', message: error.message });
-    });
+    // session.addListener('Error', (error) => {
+    //   this.logger.error(
+    //     `Speechmatics error for client ${clientId}, error: ${error}`,
+    //   );
+    //   this.server
+    //     .to(clientId)
+    //     .emit('message', { type: 'error', message: error.message });
+    // });
 
     await session.start({
       transcription_config: {
@@ -349,10 +368,9 @@ export class TranslationGateway
           },
         ],
       });
-
       return response.choices[0].message.content.trim();
     } catch (error) {
-      this.logger.error(`Error communicating with OpenAI API: ${error}`);
+      this.logger.error(`Error translating with OpenAI API: ${error}`);
       return '';
     }
   }
@@ -375,7 +393,7 @@ export class TranslationGateway
     );
   }
 
-  private createOpenAISession() {
+  private createTranscriptionSession(client: Socket): WebSocket {
     const url = 'wss://api.openai.com/v1/realtime?intent=transcription';
     const ws = new WebSocket(url, this.getOpenAIHeaders());
 
@@ -384,38 +402,65 @@ export class TranslationGateway
       this.setSessionConfig(ws);
     });
 
-    let isSessionUpdated = false;
-    ws.on('message', (message: any) => {
+    ws.on('message', async (message: any) => {
       console.log(JSON.parse(message.toString()));
+      const data = JSON.parse(message.toString());
 
-      if (message.type === 'transcription_session.created') {
-        console.log('Session created:', JSON.parse(message.toString()));
+      if (data.type === 'transcription_session.created') {
+        console.log('Session created:', data);
       }
 
       // Handle the update message
-      if (message.type === 'transcription_session.update') {
-        isSessionUpdated = true;
-        console.log('Session updated:', JSON.parse(message.toString()));
+      if (data.type === 'transcription_session.updated') {
+        this.transcriptionSessions.set(client.id, {
+          session: ws,
+          isInitialized: true,
+        });
+        console.log('Session updated:', data);
       }
 
-      // If session is not updated, do nothing & wait for update
-      if (!isSessionUpdated) {
-        return;
-      }
-
-      switch (message.type) {
+      let transcriptionBuffer = '';
+      let translationBuffer = '';
+      switch (data.type) {
         case 'transcription_session.error':
-          console.error('Session error:', message);
-          break;
+          console.error('Session error:', data);
+          throw new Error('Session error: ' + data.error.message);
         case 'response.audio_transcript.delta':
-          console.log('Audio transcript delta:', message);
+          console.log('Audio transcript delta:', data);
           break;
-        case 'response.audio_transcript.done':
-          console.log('Audio transcript done:', message);
+        case 'conversation.item.input_audio_transcription.completed':
+          console.log('Audio transcript done:', data);
+
+          const transcriptionSentence: string = data.transcript;
+          transcriptionBuffer += transcriptionSentence + ' ';
+          client.emit(
+            'message',
+            JSON.stringify({
+              type: 'transcript',
+              transcript: transcriptionBuffer,
+            }),
+          );
+
+          console.log('Transcription:', transcriptionSentence);
+          if (transcriptionSentence === '' || !transcriptionSentence?.trim()) {
+            return;
+          }
+          const translation = await this.translateText(
+            transcriptionSentence,
+            'en',
+            'ru',
+          );
+          translationBuffer += translation + ' ';
+          client.emit(
+            'message',
+            JSON.stringify({
+              type: 'translation',
+              translation: translationBuffer,
+            }),
+          );
           break;
       }
     });
-
     return ws;
   }
 
