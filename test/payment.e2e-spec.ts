@@ -8,7 +8,7 @@ import { getAccessToken } from './utils/auth.helper';
 import { AuthService } from 'src/auth/auth.service';
 import { AccountService } from 'src/account/account.service';
 import { DepositProgramService } from 'src/deposit-program/deposit-program.service';
-import { GetUserInfo } from 'src/deposit-program/types/get-user-info.type';
+import { UserInfo } from 'src/deposit-program/types/get-user-info.type';
 import { MockDepositProgramService } from './utils/deposit-program.mock';
 
 describe('PaymentModule (e2e)', () => {

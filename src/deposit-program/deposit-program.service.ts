@@ -13,7 +13,8 @@ import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import 'dotenv/config';
 import { DepositProgramAccountType } from 'src/deposit-program/constants/account-type.enum';
 import { UnfreezeBalanceResponseDto } from './dto/unfreeze-balance-response.dto';
-import { GetUserInfo } from './types/get-user-info.type';
+import { UserInfo } from './types/get-user-info.type';
+import { SubscriptionPrice } from 'src/payment/constants/subscription-price.enum';
 
 @Injectable()
 export class DepositProgramService {
@@ -25,6 +26,10 @@ export class DepositProgramService {
   private readonly master: Keypair;
   private readonly TOKEN_PROGRAM = TOKEN_PROGRAM_ID;
   private readonly TOKEN_ADDRESS = new PublicKey(process.env.TOKEN_ADDRESS);
+  private readonly SUBSCRIPTION_PRICE = new anchor.BN(
+    SubscriptionPrice.PER_MONTH * 1_000_000, // raw USDC
+  );
+  private readonly SUBSCRIPTION_DURATION_SEC = new anchor.BN(30 * 24 * 60 * 60); // 30 day in seconds
 
   constructor() {
     // Setup program
@@ -42,26 +47,26 @@ export class DepositProgramService {
     this.program = new Program(idl as DepositProgram, this.anchorProvider);
   }
 
-  getUserInfoAddress(
-    infoAccountType: DepositProgramAccountType,
-    userPublicKey: string,
-  ): PublicKey {
+  getUserInfoAddress(userPublicKey: string): PublicKey {
     const publicKey = new PublicKey(userPublicKey);
     const [userInfoAddress] = PublicKey.findProgramAddressSync(
-      [Buffer.from(infoAccountType), publicKey.toBuffer()],
+      [Buffer.from(DepositProgramAccountType.INFO), publicKey.toBuffer()],
       this.program.programId,
     );
+
     return userInfoAddress;
   }
 
-  async getUserInfo(userInfoAddress: PublicKey): Promise<GetUserInfo> {
+  async getUserInfo(userInfoAddress: PublicKey): Promise<UserInfo> {
     return await this.program.account.userInfo.fetch(userInfoAddress);
   }
 
   async getUserVaultBalance(userVaultAddress: PublicKey): Promise<number> {
     const balanceInfo =
       await this.connection.getTokenAccountBalance(userVaultAddress);
+
     const balance = parseInt(balanceInfo.value.amount);
+
     return balance;
   }
 
@@ -76,6 +81,7 @@ export class DepositProgramService {
 
   async payPerMinute(userPublicKey: string, rawPrice: number): Promise<void> {
     const publicKey = new PublicKey(userPublicKey);
+
     const transaction = await this.program.methods
       .payPerMinuteAndUnfreezeBalance(new anchor.BN(rawPrice))
       .accounts({
@@ -85,6 +91,7 @@ export class DepositProgramService {
       })
       .signers([this.master])
       .rpc();
+
     this.logger.debug(`Payment done: [${transaction}]`);
   }
 
@@ -94,6 +101,7 @@ export class DepositProgramService {
     perHoursLeft: number,
   ): Promise<void> {
     const publicKey = new PublicKey(userPublicKey);
+
     const transaction = await this.program.methods
       .payPerHourAndUnfreezeBalance(
         new anchor.BN(rawTotalPrice),
@@ -106,6 +114,23 @@ export class DepositProgramService {
       })
       .signers([this.master])
       .rpc();
+
+    this.logger.debug(`Payment done: [${transaction}]`);
+  }
+
+  async buySubscription(userPublicKey: string): Promise<void> {
+    const publicKey = new PublicKey(userPublicKey);
+
+    const transaction = await this.program.methods
+      .subscribe(this.SUBSCRIPTION_PRICE, this.SUBSCRIPTION_DURATION_SEC)
+      .accounts({
+        user: publicKey,
+        token: this.TOKEN_ADDRESS,
+        tokenProgram: this.TOKEN_PROGRAM,
+      })
+      .signers([this.master])
+      .rpc();
+
     this.logger.debug(`Payment done: [${transaction}]`);
   }
 
@@ -114,6 +139,7 @@ export class DepositProgramService {
     rawTotalPrice: number,
   ): Promise<string> {
     const publicKey = new PublicKey(userPublicKey);
+
     const transaction = await this.program.methods
       .refund(rawTotalPrice)
       .accounts({
@@ -123,14 +149,17 @@ export class DepositProgramService {
       })
       .signers([this.master])
       .rpc();
+
     this.logger.debug(
       `Refund done for user [${userPublicKey}], transaction: [${transaction}]`,
     );
+
     return transaction;
   }
 
   async freezeBalance(userPublicKey: string): Promise<string> {
     const publicKey = new PublicKey(userPublicKey);
+
     const transaction = await this.program.methods
       .freezeBalance()
       .accounts({
@@ -138,6 +167,7 @@ export class DepositProgramService {
       })
       .signers([this.master])
       .rpc();
+
     return transaction;
   }
 
@@ -145,6 +175,7 @@ export class DepositProgramService {
     userPublicKey: string,
   ): Promise<UnfreezeBalanceResponseDto> {
     const publicKey = new PublicKey(userPublicKey);
+
     try {
       const transaction = await this.program.methods
         .unfreezeBalance()

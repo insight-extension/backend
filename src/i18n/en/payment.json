@@ -23,6 +23,7 @@
     "stopPayPerHoursFailed": "Failed to end pay per hours usage",
     "errorDuringPayPerUsage": "An error occurred while using pay per usage",
     "errorDuringPayPerHours": "An error occurred while using pay per hours",
-    "errorDuringFreeHours": "An error occurred while using free hours"
+    "errorDuringFreeHours": "An error occurred while using free hours",
+    "startSubscriptionFailed": "Failed to start subscription"
   }
 }
