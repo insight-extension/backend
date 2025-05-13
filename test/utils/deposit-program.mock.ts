@@ -32,6 +32,7 @@ export class MockDepositProgramService {
         perHourLeft: new BN(this.perHourLeft),
         isBalanceFrozen: this.isBalanceFrozen,
         bump: 123,
+        subscriptionEndsAt: new BN(0),
       };
     },
   );
