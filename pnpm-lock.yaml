@@ -156,6 +156,9 @@ importers:
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.2
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.17.0
         version: 8.25.0(@typescript-eslint/parser@8.25.0(eslint@8.57.1)(typescript@5.8.2))(eslint@8.57.1)(typescript@5.8.2)
@@ -1154,8 +1157,8 @@ packages:
   '@types/ws@7.4.7':
     resolution: {integrity: sha512-JQbbmxZTZehdc2iszGKs5oC3NFnjeay7mtAWrdt7qNtAVK0g19muApzAy4bm9byz79xa2ZnO/BOBC2R8RC5Lww==}
 
-  '@types/ws@8.5.14':
-    resolution: {integrity: sha512-bd/YFLW+URhBzMXurx7lWByOu+xzU9+kb3RboOteXYDfW+tr+JZa99OyNmPINEGB/ahzKrEuc8rcv4gnpJmxTw==}
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@types/yargs-parser@21.0.3':
     resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
@@ -5049,7 +5052,7 @@ snapshots:
     dependencies:
       '@types/node': 22.7.4
 
-  '@types/ws@8.5.14':
+  '@types/ws@8.18.1':
     dependencies:
       '@types/node': 22.7.4
 
@@ -7466,7 +7469,7 @@ snapshots:
     dependencies:
       '@swc/helpers': 0.5.15
       '@types/uuid': 8.3.4
-      '@types/ws': 8.5.14
+      '@types/ws': 8.18.1
       buffer: 6.0.3
       eventemitter3: 5.0.1
       uuid: 8.3.2
