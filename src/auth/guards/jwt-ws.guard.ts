@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import 'dotenv/config';
 import { Socket } from 'socket.io';
 import { AccountService } from 'src/account/account.service';
-import { WsEvents } from 'src/translation/constants/ws-events.enum';
+import { ExtensionEvents } from 'src/translation/constants/extension-events.enum';
 
 @Injectable()
 export class WsJwtGuard {
@@ -51,7 +51,7 @@ export class WsJwtGuard {
         },
         HttpStatus.FORBIDDEN,
       );
-      client.emit(WsEvents.ERROR, errorToEmit.getResponse());
+      client.emit(ExtensionEvents.ERROR, errorToEmit.getResponse());
       client.disconnect();
       //TODO: Add logger
       Logger.warn(
