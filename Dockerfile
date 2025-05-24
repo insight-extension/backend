@@ -11,17 +11,16 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 
 # Install dependencies
-RUN pnpm install --prod
+RUN pnpm install
 
 # Copy the application source code
 COPY . .
 
 # Build the application
 RUN pnpm run build
-RUN pnpm exec prisma migrate dev
 
 # Expose the API port
 EXPOSE ${API_PORT}
 
 # Run the application in production mode
-CMD ["pnpm", "run", "start:prod"]
+CMD ["sh", "-c", "pnpm run db:deploy && pnpm run start:prod"]
