@@ -1,0 +1,13 @@
+node_modules
+dist
+
+.git
+.github
+
+.env
+.env.example
+
+docker-compose.yaml
+docker-compose.dev.yaml
+
+*.md

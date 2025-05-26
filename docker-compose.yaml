@@ -58,15 +58,12 @@ services:
   insight:
     build:
       context: .
-      args:
-        PORT: ${API_PORT} # Pass API_PORT from .env file
     ports:
-      - '${API_PORT}:${API_PORT}' # Map host port to container port
+      - '${API_PORT}:${API_PORT}'
     env_file:
-      - .env # Ensure .env file is loaded for environment variables
+      - .env
     environment:
-      - NODE_ENV=development # Set NODE_ENV to development
-    command: pnpm run start:prod # Run the app in production mode
+      - NODE_ENV=${NODE_ENV}
     depends_on:
-      - loki # Ensure Loki starts before insight
-      - postgres # Ensure Postgres starts before insight
+      postgres:
+        condition: service_healthy
