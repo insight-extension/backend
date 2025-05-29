@@ -18,7 +18,7 @@ import { TranslationLanguages } from './constants/translation-languages.enum';
 import { ExtensionEvents as ExtensionEvents } from './constants/extension-events.enum';
 import { WsJwtGuard } from 'src/auth/guards/jwt-ws.guard';
 import * as WebSocket from 'ws';
-import { ExtractTranslationLanguages } from './types/extract-translation-languages.type';
+import { ExtractTranslationLanguages as ExtractTranslationLanguages } from './types/extract-translation-languages.type';
 import { ServerMessageTypes } from './constants/server-message-types.enum';
 import { ClientMessageTypes } from './constants/client-message-types.enum';
 import { TranscriptionSession } from './interfaces/transcription-session.interface';
@@ -52,6 +52,10 @@ export class TranslationGateway
   // Source: https://platform.openai.com/docs/guides/realtime?use-case=transcription#connect-with-websockets
   private readonly OPENAI_TRANSCRIPTION_URL =
     'wss://api.openai.com/v1/realtime?intent=transcription';
+
+  private readonly OPENAI_S2S_MODEL = 'gpt-4o-mini-realtime-preview-2024-12-17';
+
+  private readonly OPENAI_S2S_URL = `wss://api.openai.com/v1/realtime?model=${this.OPENAI_S2S_MODEL}`;
 
   afterInit() {
     this.logger.log('Translation gateway initialized');
@@ -87,7 +91,7 @@ export class TranslationGateway
     const transcriptionSession = this.transcriptionSessions.get(clientId);
 
     if (transcriptionSession) {
-      transcriptionSession.session.close();
+      transcriptionSession.openaiSession.close();
       this.transcriptionSessions.delete(clientId);
       this.logger.debug(`Transcription session closed for client ${clientId}`);
     }
@@ -98,24 +102,7 @@ export class TranslationGateway
     @MessageBody() audioData: Buffer,
     @ConnectedSocket() client: Socket,
   ) {
-    try {
-      if (!this.transcriptionSessions.has(client.id)) {
-        const session = this.createTranscriptionSession(client);
-
-        this.transcriptionSessions.set(client.id, {
-          session,
-          isUpdated: false,
-        });
-
-        this.logger.debug(
-          `Creating new transcription session for client ${client.id}`,
-        );
-      }
-    } catch (error) {
-      client.emit(ExtensionEvents.ERROR, {
-        message: 'Failed to create transcription session.',
-      });
-    }
+    this.createSessionIfNotExists(client);
 
     const transcriptionSession = this.transcriptionSessions.get(client.id);
     try {
@@ -126,7 +113,7 @@ export class TranslationGateway
         return;
       }
 
-      this.sendAudioToOpenAI(transcriptionSession.session, audioData);
+      this.sendAudioToOpenAI(transcriptionSession.openaiSession, audioData);
     } catch (error) {
       this.logger.error(
         `Error sending audio data for client ${client.id}, error ${error}`,
@@ -141,10 +128,10 @@ export class TranslationGateway
   private async createSessionIfNotExists(client: Socket) {
     try {
       if (!this.transcriptionSessions.has(client.id)) {
-        const session = this.createTranscriptionSession(client);
-
+        // const session = this.createTranscriptionSession(client);
+        const session = this.createS2sSession(client);
         this.transcriptionSessions.set(client.id, {
-          session,
+          openaiSession: session,
           isUpdated: false,
         });
 
@@ -181,19 +168,19 @@ export class TranslationGateway
     };
   }
 
-  private setSessionConfig(
+  private updateTranscriptionSessionCfg(
     ws: WebSocket,
     sourceLanguage: TranslationLanguages,
-  ) {
+  ): void {
     ws.send(
       JSON.stringify({
-        type: ClientMessageTypes.SESSION_UPDATE,
-        session: this.getSessionConfig(sourceLanguage),
+        type: ClientMessageTypes.TRANSCRIPTION_SESSION_UPDATE,
+        session: this.getTranscriptionSessionCfg(sourceLanguage),
       }),
     );
   }
 
-  private getSessionConfig(sourceLanguage: TranslationLanguages) {
+  private getTranscriptionSessionCfg(sourceLanguage: TranslationLanguages) {
     return {
       input_audio_noise_reduction: null,
       turn_detection: {
@@ -212,15 +199,15 @@ export class TranslationGateway
     };
   }
 
-  private subscribeOnOpen(ws: WebSocket, client: Socket) {
-    const { sourceLanguage } = this.extractTranslationLanguages(client);
+  private subscribeOnOpen(ws: WebSocket, client: Socket): void {
+    const { sourceLang } = this.extractTranslationLanguages(client);
     ws.on('open', () => {
       this.logger.debug('Connected to server.');
-      this.setSessionConfig(ws, sourceLanguage);
+      this.updateTranscriptionSessionCfg(ws, sourceLang);
     });
   }
 
-  private subscribeOnClose(ws: WebSocket, client: Socket) {
+  private subscribeOnClose(ws: WebSocket, client: Socket): void {
     ws.on('close', () => {
       this.logger.debug(`WebSocket connection closed for client ${client.id}`);
 
@@ -230,7 +217,7 @@ export class TranslationGateway
     });
   }
 
-  private subscribeOnMessage(ws: WebSocket, client: Socket) {
+  private subscribeOnMessage(ws: WebSocket, client: Socket): void {
     ws.on('message', async (message: any) => {
       const data = JSON.parse(message.toString());
       this.logger.debug(data);
@@ -239,27 +226,27 @@ export class TranslationGateway
       let translationBuffer = '';
 
       switch (data.type) {
-        case ServerMessageTypes.SESSION_CREATED:
+        case ServerMessageTypes.TRANSCRIPTION_SESSION_CREATED:
           this.logger.debug('Session created:', data);
 
-        case ServerMessageTypes.SESSION_UPDATED:
+        case ServerMessageTypes.TRANSCRIPTION_SESSION_UPDATED:
           this.transcriptionSessions.set(client.id, {
-            session: ws,
+            openaiSession: ws,
             isUpdated: true,
           });
           this.logger.debug('Session updated:', data);
 
-        case ServerMessageTypes.ERROR:
+        case ServerMessageTypes.TRANSCRIPTION_SESSION_ERROR:
           this.logger.error('Session error:', data);
           throw new Error('Session error: ' + data.error.message);
 
         // Handle the transcription sentences parts from OpenAI
-        case ServerMessageTypes.DELTA:
+        case ServerMessageTypes.TRANSCRIPT_DELTA:
           this.logger.debug('Audio transcript delta:', data);
           break;
 
         // Handle the completed transcription sentences from OpenAI
-        case ServerMessageTypes.COMPLETED:
+        case ServerMessageTypes.TRANSCRIPTION_COMPLETED:
           const transcriptionSentence: string = data.transcript;
           this.logger.debug('Transcription: ', transcriptionSentence);
 
@@ -303,7 +290,7 @@ export class TranslationGateway
   }
 
   private async translateText(text: string, client: Socket): Promise<string> {
-    const { sourceLanguage, targetLanguage } =
+    const { sourceLang: sourceLanguage, targetLang: targetLanguage } =
       this.extractTranslationLanguages(client);
 
     try {
@@ -348,8 +335,8 @@ export class TranslationGateway
     this.validateLanguages(sourceLanguage, targetLanguage);
 
     return {
-      sourceLanguage: sourceLanguage as TranslationLanguages,
-      targetLanguage: targetLanguage as TranslationLanguages,
+      sourceLang: sourceLanguage as TranslationLanguages,
+      targetLang: targetLanguage as TranslationLanguages,
     };
   }
 
@@ -391,5 +378,113 @@ export class TranslationGateway
         audio: audioData.toString('base64'),
       }),
     );
+  }
+
+  private createS2sSession(client: Socket): WebSocket {
+    const ws = new WebSocket(this.OPENAI_S2S_URL, this.getOpenAIHeaders());
+
+    const languages = this.extractTranslationLanguages(client);
+
+    ws.on('open', async () => {
+      console.log('Connected to server.');
+      this.updateS2sSessionCfg(ws, languages);
+    });
+
+    ws.on('message', async (message) => {
+      const data = JSON.parse(message.toString());
+      //console.log(data);
+
+      let transcriptionBuffer = '';
+      let translationBuffer = '';
+
+      switch (data.type) {
+        case ServerMessageTypes.S2S_SESSION_CREATED:
+          this.logger.debug('Session created:', data);
+          break;
+
+        case ServerMessageTypes.S2S_SESSION_UPDATED:
+          this.transcriptionSessions.set(client.id, {
+            openaiSession: ws,
+            isUpdated: true,
+          });
+          this.logger.debug('Session updated:', data);
+          break;
+
+        case ServerMessageTypes.ERROR:
+          this.logger.error('Session error:', data.error.message);
+          // TODO: thought about custom exception
+          throw new Error('Session error: ' + data.error.message);
+
+        case ServerMessageTypes.TRANSCRIPTION_COMPLETED:
+          const transcriptionSentence: string = data.transcript;
+          transcriptionBuffer += transcriptionSentence + ' ';
+
+          this.emitTranscription(client, transcriptionBuffer);
+          console.log('Transcription: ', transcriptionSentence);
+          break;
+
+        case ServerMessageTypes.AUDIO_TRANSCRIPT_DONE:
+          const translationSentence: string = data.transcript;
+          translationBuffer += translationSentence + ' ';
+
+          this.emitTranslation(client, translationBuffer);
+          console.log('Translation: ', translationSentence);
+          break;
+
+        case ServerMessageTypes.AUDIO_DELTA:
+          const audioDelta = data.delta;
+          console.log('Audio delta added');
+          break;
+      }
+    });
+    return ws;
+  }
+
+  private updateS2sSessionCfg(
+    ws: WebSocket,
+    languages: ExtractTranslationLanguages,
+    voice: string = 'alloy',
+  ) {
+    ws.send(
+      JSON.stringify({
+        type: ClientMessageTypes.S2S_SESSION_UPDATE,
+        session: this.getS2sSessionCfg(languages, voice),
+      }),
+    );
+  }
+
+  private getS2sSessionCfg(
+    languages: ExtractTranslationLanguages,
+    voice: string,
+  ) {
+    return {
+      modalities: ['text', 'audio'],
+      model: this.OPENAI_S2S_MODEL,
+      instructions: this.getTranslationPrompt(languages),
+      voice,
+      input_audio_format: 'pcm16',
+      output_audio_format: 'pcm16',
+      input_audio_transcription: {
+        model: 'gpt-4o-mini-transcribe',
+        language: languages.sourceLang,
+        prompt: '',
+      },
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 100,
+      },
+      tool_choice: 'none',
+      temperature: 0.8,
+      max_response_output_tokens: 'inf',
+    };
+  }
+
+  private getTranslationPrompt(languages: ExtractTranslationLanguages): string {
+    // TODO: try with:
+    // Translate from en to ru. No explanations. Preserve context.
+
+    return `You are a professional translator. Just translate text from ${languages.sourceLang} to ${languages.targetLang}, keeping the context. Do not add explanations, comments, or extra text.`;
   }
 }

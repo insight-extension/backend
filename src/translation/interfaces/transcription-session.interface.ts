@@ -1,6 +1,6 @@
 import * as WebSocket from 'ws';
 
 export interface TranscriptionSession {
-  session: WebSocket;
+  openaiSession: WebSocket;
   isUpdated: boolean;
 }
