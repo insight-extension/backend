@@ -416,6 +416,7 @@ export class TranslationGateway
           throw new Error('Session error: ' + data.error.message);
 
         case ServerMessageTypes.TRANSCRIPTION_COMPLETED:
+          ws.send(JSON.stringify({ type: 'response.create' }));
           const transcriptionSentence: string = data.transcript;
           transcriptionBuffer += transcriptionSentence + ' ';
 
@@ -472,8 +473,10 @@ export class TranslationGateway
       turn_detection: {
         type: 'server_vad',
         threshold: 0.5,
-        prefix_padding_ms: 300,
+        prefix_padding_ms: 150,
         silence_duration_ms: 100,
+        create_response: true,
+        interrupt_response: false,
       },
       tool_choice: 'none',
       temperature: 0.8,
@@ -483,8 +486,8 @@ export class TranslationGateway
 
   private getTranslationPrompt(languages: ExtractTranslationLanguages): string {
     // TODO: try with:
-    // Translate from en to ru. No explanations. Preserve context.
+    // Translate from ${languages.sourceLang} to ${languages.targetLang}. No explanations. Preserve context.
 
-    return `You are a professional translator. Just translate text from ${languages.sourceLang} to ${languages.targetLang}, keeping the context. Do not add explanations, comments, or extra text.`;
+    return `Translate from ${languages.sourceLang} to ${languages.targetLang}. No explanations. Preserve context.`;
   }
 }
