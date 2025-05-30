@@ -10,13 +10,13 @@ on:
 
 jobs:
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install pnpm
-        run: npm install -g pnpm@9.4.0
+      # - name: Install pnpm
+      #   run: npm install -g pnpm@9.4.0
 
       - name: Install dependencies
         run: pnpm i
