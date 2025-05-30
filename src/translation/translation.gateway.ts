@@ -434,7 +434,8 @@ export class TranslationGateway
 
         case ServerMessageTypes.AUDIO_DELTA:
           const audioDelta = data.delta;
-          console.log('Audio delta added');
+          const buffer = Buffer.from(audioDelta, 'base64');
+          client.emit(ExtensionEvents.AUDIO_DATA, buffer);
           break;
       }
     });
