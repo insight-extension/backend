@@ -434,7 +434,8 @@ export class TranslationGateway
 
         case ServerMessageTypes.AUDIO_DELTA:
           const audioDelta = data.delta;
-          console.log('Audio delta added');
+          const buffer = Buffer.from(audioDelta, 'base64');
+          client.emit(ExtensionEvents.AUDIO_DATA, buffer);
           break;
       }
     });
@@ -473,21 +474,28 @@ export class TranslationGateway
       turn_detection: {
         type: 'server_vad',
         threshold: 0.5,
-        prefix_padding_ms: 150,
-        silence_duration_ms: 100,
+        prefix_padding_ms: 200,
+        silence_duration_ms: 200,
         create_response: true,
         interrupt_response: false,
       },
       tool_choice: 'none',
-      temperature: 0.8,
+      temperature: 0.6,
       max_response_output_tokens: 'inf',
     };
   }
 
   private getTranslationPrompt(languages: ExtractTranslationLanguages): string {
-    // TODO: try with:
-    // Translate from ${languages.sourceLang} to ${languages.targetLang}. No explanations. Preserve context.
+    return `You are a professional, literal translator. Your only task is to translate the given sentence or phrase from ${languages.sourceLang} to ${languages.targetLang}, preserving meaning and tone.
 
-    return `Translate from ${languages.sourceLang} to ${languages.targetLang}. No explanations. Preserve context.`;
+DO NOT:
+- add explanations or clarifications;
+- respond as if continuing a conversation;
+- change the sentence structure unnecessarily;
+- add extra text not present in the original.
+
+Translate only what is given. If the source is incomplete, still translate exactly what is written without filling in or interpreting.
+
+SOURCE (${languages.sourceLang}):`;
   }
 }
