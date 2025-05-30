@@ -277,9 +277,24 @@ export class TranslationGateway
           );
           translationBuffer += translation + ' ';
           this.emitTranslation(client, translationBuffer);
+          // TODO: improve
+          const speech = await this.getSpeechFromTranslation(translation);
+          client.emit(ExtensionEvents.AUDIO_DATA, speech);
           break;
       }
     });
+  }
+
+  private async getSpeechFromTranslation(
+    translation: string,
+  ): Promise<ArrayBuffer> {
+    const response = await this.openai.audio.speech.create({
+      model: 'gpt-4o-mini-tts',
+      voice: 'coral',
+      input: translation,
+      response_format: 'pcm',
+    });
+    return response.arrayBuffer();
   }
 
   private emitTranscription(client: Socket, transcriptionBuffer: string): void {
