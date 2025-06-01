@@ -292,6 +292,7 @@ export class TranslationGateway
       model: 'gpt-4o-mini-tts',
       voice: 'coral',
       input: translation,
+      speed: 1.5,
       response_format: 'pcm',
     });
     return response.arrayBuffer();
@@ -323,7 +324,7 @@ export class TranslationGateway
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-nano',
         messages: [
           {
             role: 'system',
